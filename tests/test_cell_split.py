@@ -27,8 +27,10 @@ from pappascout.domain.aggregate import (
     places_for,
 )
 from pappascout.domain.models import (
+    CALLOUT_TABLE_PATH,
     SPLIT_GRID_FIELDS,
     CellPart,
+    CellRegion,
     CellSplit,
     load_callouts,
     load_settings,
@@ -37,6 +39,7 @@ from pappascout.errors import SettingsError
 from pappascout.render import view as view_module
 from pappascout.stages.aggregate import (
     HASHED_PART_FIELDS,
+    HASHED_REGION_FIELDS,
     HASHED_SPLIT_FIELDS,
     _params_hash,
 )
@@ -135,12 +138,100 @@ def test_every_named_half_cell_places_its_centre_under_its_callout(
             ):
                 boxed.append(name)
                 continue
-            assert split.part_at(*_at_pixel(split, px, py)).callout == (
-                part.callout
-            ), name
+            # Since Story 4.20 a finer part earlier in the table may hold the
+            # centre (the broad part names the half-cell too); the claimant
+            # is read by the test's own geometry.
+            x, y, z = _at_pixel(split, px, py)
+            assert split.part_at(x, y, z) is _claimant(split, px, py, z), name
             checked += 1
     assert boxed == (["K12d"] if key == "de_nuke.Outside" else [])
     assert checked == sum(len(part.cells) for part in split.parts) - len(boxed)
+
+
+def _half_cell_rect(split: CellSplit, name: str) -> tuple[float, ...]:
+    cx, cy = _centre(split, name)
+    w, h = split.cell[0] / 2, split.cell[1] / 2
+    return (cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+
+
+def _region_rect(split: CellSplit, region) -> tuple[float, ...]:
+    """A region's rectangle as the test reads the table: a fraction of the
+    half-cell from :func:`_centre`, or a box ``size`` half-cells wide on the
+    one corner every named half-cell shares -- not through the model."""
+    w, h = split.cell[0] / 2, split.cell[1] / 2
+    if region.cell is not None:
+        x0, y0, _, _ = _half_cell_rect(split, region.cell)
+        return (
+            x0 + region.x[0] * w, y0 + region.y[0] * h,
+            x0 + region.x[1] * w, y0 + region.y[1] * h,
+        )
+    corners = None
+    for name in region.crossing:
+        x0, y0, x1, y1 = _half_cell_rect(split, name)
+        these = {
+            (round(x, 6), round(y, 6)) for x in (x0, x1) for y in (y0, y1)
+        }
+        corners = these if corners is None else corners & these
+    (px, py), = corners
+    size = region.size
+    return (px - size * w / 2, py - size * h / 2, px + size * w / 2, py + size * h / 2)
+
+
+def _claimant(split: CellSplit, px: float, py: float, z: float) -> CellPart | None:
+    """The part the table gives a spot, read in table order by the test:
+    a box first, then the first part whose half-cell or region (and band)
+    holds it; ``None`` where the nearest rule decides."""
+    for part in split.parts:
+        if any(b[0] <= px < b[2] and b[1] <= py < b[3] for b in part.boxes):
+            return part
+    for part in split.parts:
+        rects = [(_half_cell_rect(split, n), None) for n in part.cells] + [
+            (_region_rect(split, r), r.z) for r in part.regions
+        ]
+        for (x0, y0, x1, y1), band in rects:
+            inside = band is None or band[0] <= z < band[1]
+            if x0 <= px < x1 and y0 <= py < y1 and inside:
+                return part
+    return None
+
+
+def _spots(split: CellSplit, part: CellPart) -> list[tuple[float, float, float]]:
+    """A game position at the centre of each half-cell and region of a part,
+    at a height inside the region's band."""
+    spots = [
+        _at_pixel(split, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2) for b in part.boxes
+    ]
+    for name in part.cells:
+        spots.append(_at_pixel(split, *_centre(split, name)))
+    for region in part.regions:
+        x0, y0, x1, y1 = _region_rect(split, region)
+        x, y, z = _at_pixel(split, (x0 + x1) / 2, (y0 + y1) / 2)
+        if region.z is not None:
+            low, high = region.z
+            z = high - 1.0 if low == float("-inf") else low + 1.0
+        spots.append((x, y, z))
+    return spots
+
+
+@pytest.mark.parametrize("key", SPLITS)
+def test_every_region_places_its_centre_under_the_first_part_that_claims_it(
+    key: str,
+) -> None:
+    """Story 4.20: at each half-cell's and region's centre, inside its band,
+    the position is counted under the first part in table order that claims
+    the spot -- and **every part wins at least one of its own spots**, so a
+    part the finer ones before it cover completely (a table in the wrong
+    order) fails here by name."""
+    _, split = _every_split()[key]
+    for part in split.parts:
+        won = 0
+        for x, y, z in _spots(split, part):
+            px, py = split.pixel(x, y)
+            expected = _claimant(split, px, py, z)
+            assert expected is not None, part.callout
+            assert split.part_at(x, y, z) is expected, part.callout
+            won += expected is part
+        assert won, part.callout
 
 
 def test_a_half_cell_name_round_trips_and_a_foreign_one_is_refused() -> None:
@@ -452,17 +543,18 @@ def test_a_statistic_and_a_route_step_name_one_position_alike(key: str) -> None:
     table, split = _every_split()[key]
     area = key.split(".")[1]
     for part in split.parts:
-        for name in part.cells:
-            px, py = _centre(split, name)
-            if _in_a_box(split, px, py):
-                continue
-            row = {**_row_at(split, name), "area": area}
+        # Since Story 4.20 every region too, inside its band; the answer is
+        # the spot's first claimant, which is not always the part itself.
+        for x, y, z in _spots(split, part):
+            row = {"area": area, "x": x, "y": y, "z": z}
             (named,) = named_rows([row], TICK_AREA_COLUMNS, table)
             position = (row["x"], row["y"], row["z"])
             tokens, _ = _junction_path(
                 [6.0], {6.0: (area, position)}, None, table
             )
-            assert named["area"] == tokens[0].label == part.callout, name
+            px, py = split.pixel(x, y)
+            expected = _claimant(split, px, py, z).callout
+            assert named["area"] == tokens[0].label == expected, part.callout
             assert row["area"] == area  # a copy: the rules' row unmoved
 
 
@@ -589,6 +681,8 @@ def test_every_hashed_split_and_part_field_moves_the_hash(tmp_path: Path) -> Non
         "callout": {"callout": "c"},
         "cells": {"cells": ["A1b"]},
         "boxes": {"boxes": [(1.0, 1.0, 2.0, 2.0)]},
+        "regions": {"regions": [CellRegion(cell="A2a", words="w")]},
+        "broad": {"broad": True},
         "junction": {"junction": True, "junction_source": "his words"},
         "confidence": {"confidence": "guess"},
     }
@@ -599,6 +693,30 @@ def test_every_hashed_split_and_part_field_moves_the_hash(tmp_path: Path) -> Non
         assert _digest(moved) != same, field
     for field, update in part_variants.items():
         assert _digest(_with_part(table, **update)) != same, field
+    # A region's geometry and band are hashed, its words are not (Story 4.20).
+    base = CellRegion(cell="A2a", words="w")
+    with_region = _with_part(table, regions=[base])
+    region_variants = {
+        "cell": {"cell": "A2b"},
+        "crossing": {"cell": None, "crossing": ["A1d", "B2a"]},
+        "x": {"x": (0.0, 0.5)},
+        "y": {"y": (0.5, 1.0)},
+        "size": {"cell": None, "crossing": ["A1d", "B2a"], "size": 1.0},
+        "z": {"z": (0.0, 10.0)},
+    }
+    assert set(region_variants) == set(HASHED_REGION_FIELDS)
+    assert set(CellRegion.model_fields) == set(HASHED_REGION_FIELDS) | {"words"}
+    for field, update in region_variants.items():
+        moved = _with_part(table, regions=[base.model_copy(update=update)])
+        if field == "size":
+            crossing = _with_part(
+                table, regions=[base.model_copy(update=region_variants["crossing"])]
+            )
+            assert _digest(moved) != _digest(crossing), field
+            continue
+        assert _digest(moved) != _digest(with_region), field
+    reworded = _with_part(table, regions=[base.model_copy(update={"words": "v"})])
+    assert _digest(reworded) == _digest(with_region)
 
 
 def test_no_provenance_of_a_split_moves_the_hash(tmp_path: Path) -> None:
@@ -691,6 +809,10 @@ def test_every_parts_cells_are_the_half_cells_its_quoted_row_names(
     callout is the part's."""
     _, split = _every_split()[key]
     for part in split.parts:
+        if not _ROW.search(part.source):
+            # Story 4.20: his verbatim answer, quoted -- not a table row.
+            _check_his_words(split, part)
+            continue
         named = []
         for callout, written in _quoted_rows(part.source):
             assert " ".join(callout.split()).lower() == part.callout, callout
@@ -707,6 +829,217 @@ def test_every_parts_cells_are_the_half_cells_its_quoted_row_names(
                 and box[1] < y0 + split.cell[1] / 2 and y0 < box[3]
                 for box in part.boxes
             ), name
+
+
+#: His words a Story 4.20 source quotes: ``his words: '<verbatim>'``.
+_HIS_WORDS = re.compile(r"his words: '([^']*)'")
+#: A reading the source states: ``read '<as written>' as <half-cells>``.
+_READ_AS = re.compile(
+    r"read '([^']*)' as ([A-P][0-9]+[a-d](?:, [A-P][0-9]+[a-d])*)"
+)
+#: A half-cell as his free text writes it: any case (*h5d*, *H12B*), glued
+#: to a Finnish ending (*E8b:hen*, *G11dja*), with his range form *F9a-d*.
+_FREE_CELL = re.compile(
+    r"(?<![A-Za-z0-9])([A-Pa-p])([1-9][0-9]*)([a-dA-D])(?:[-–]([a-d]))?(?![0-9])"
+)
+def _header_text() -> str:
+    """The ``callouts.toml`` header as one line of prose, for a test that
+    reads a rule from the one place it is written."""
+    return " ".join(
+        line.lstrip("#").strip()
+        for line in CALLOUT_TABLE_PATH.read_text(encoding="utf-8").splitlines()
+        if line.startswith("#")
+    )
+
+
+def _edge_of_the_header() -> float:
+    """The lead's size for an edge he did not quantify (A1), read from the
+    one place it is written -- the header of ``callouts.toml`` -- so the
+    test and the table cannot hold two values."""
+    header = _header_text()
+    rule = re.search(
+        r"an edge he does not quantify \(yläreuna, alareuna, oikea reuna\) "
+        r"is (\d+)/(\d+) of the half-cell on that side",
+        header,
+    )
+    assert rule, "the header states no edge size"
+    return int(rule[1]) / int(rule[2])
+
+
+#: The lead's sizes where he gave none (A1, A2; callouts.toml header).
+EDGE = _edge_of_the_header()
+_WHOLE = (0.0, 1.0)
+#: His fraction words -> (x, y) of the half-cell, y from the top; the first
+#: listed term found in a region's words decides, so a longer term is
+#: listed before a shorter one inside it. Each term is his own, from
+#: puoliruudut-vastaus-2-2026-09-28.md; where he gave no size, EDGE or a
+#: half by half corner (his own corner size, "puolet korkeudesta ja
+#: leveydestä").
+_FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
+    # A3: "yläreuna crossia ja alapuolisko yläbanaania" -- the top is the
+    # half the bottom half leaves (the lead's reading, not the edge rule).
+    ("yläreuna crossia ja alapuolisko", (_WHOLE, (0.0, 0.5))),
+    # His answer to the review tie: "E8a:n oikea reuna on canalia ja vasen
+    # connectoria" -- the right is the half the left half leaves (the
+    # lead's reading, not the edge rule).
+    ("oikea reuna on canalia ja vasen", ((0.5, 1.0), _WHOLE)),
+    ("yläpuolisko", (_WHOLE, (0.0, 0.5))),
+    ("viidesosa ruudun oikeasta reunasta", ((0.8, 1.0), _WHOLE)),
+    ("oikea reuna kuten h11d", ((0.8, 1.0), _WHOLE)),
+    ("neljäsosa ruudusta", ((0.0, 0.25), _WHOLE)),
+    ("oikean reunan kolmannes", ((2 / 3, 1.0), _WHOLE)),
+    ("vasemman reunan kuudennes", ((0.0, 1 / 6), _WHOLE)),
+    ("alin kuudennes", (_WHOLE, (5 / 6, 1.0))),
+    ("alin kolmasosa", (_WHOLE, (2 / 3, 1.0))),
+    ("yläreunan kolmannes", (_WHOLE, (0.0, 1 / 3))),
+    ("ylin viidesosa", (_WHOLE, (0.0, 0.2))),
+    # A27: his "vasen nurkka", read as the bottom-left.
+    ("puolet korkeudesta ja leveydestä", ((0.0, 0.5), (0.5, 1.0))),
+    ("vasemmassa alanurkassa", ((0.0, 0.5), (0.5, 1.0))),
+    ("vasen yläkulma", ((0.0, 0.5), (0.0, 0.5))),
+    ("vasen ylänurkka", ((0.0, 0.5), (0.0, 0.5))),
+    ("oikea ylänurkka", ((0.5, 1.0), (0.0, 0.5))),
+    ("yläoikeasta reunasta", ((0.5, 1.0), (0.0, 0.5))),
+    ("oikea alanurkka", ((0.5, 1.0), (0.5, 1.0))),
+    ("oikea alareuna", ((0.5, 1.0), (0.5, 1.0))),
+    ("alaoikea nurkka", ((0.5, 1.0), (0.5, 1.0))),
+    ("oikea puoli noin puolesta välistä", ((0.5, 1.0), _WHOLE)),
+    ("oikeat puoliskot", ((0.5, 1.0), _WHOLE)),
+    ("vasen puolisko", ((0.0, 0.5), _WHOLE)),
+    ("vasen puoli", ((0.0, 0.5), _WHOLE)),
+    ("alempi puolisko", (_WHOLE, (0.5, 1.0))),
+    ("alapuolisko", (_WHOLE, (0.5, 1.0))),
+    ("ylempi puolisko", (_WHOLE, (0.0, 0.5))),
+    ("alareunat", (_WHOLE, (1 - EDGE, 1.0))),
+    ("alareuna", (_WHOLE, (1 - EDGE, 1.0))),
+    ("alin reuna", (_WHOLE, (1 - EDGE, 1.0))),
+    ("yläreuna", (_WHOLE, (0.0, EDGE))),
+    ("oikea reuna", ((1 - EDGE, 1.0), _WHOLE)),
+)
+#: Words that say the height separates the place.
+_HEIGHT_WORDS = (
+    "z koordinaat", "korkeammalla", "korkeampi", "alempana", "päällä", "buust"
+)
+
+
+def _free_cells(text: str) -> list[str]:
+    cells = []
+    for letter, row, first, last in _FREE_CELL.findall(text):
+        first = first.lower()
+        span = "abcd"["abcd".index(first) : "abcd".index(last or first) + 1]
+        cells.extend(f"{letter.upper()}{row}{quarter}" for quarter in span)
+    return cells
+
+
+def _read(text: str, readings: list[tuple[str, str]]) -> str:
+    for written, cells in readings:
+        text = text.replace(written, f" {cells} ")
+    return text
+
+
+def _fraction_of(words: str) -> tuple[tuple[float, float], tuple[float, float]]:
+    lower = words.lower()
+    for term, (x, y) in _FRACTION_WORDS:
+        if term in lower:
+            return x, y
+    return _WHOLE, _WHOLE
+
+
+def _samples(x: tuple[float, float], y: tuple[float, float]) -> set:
+    """The sample points of a fraction on a 60 x 60 lattice of the half-cell
+    -- 60 is divisible by every size he used (1/2 ... 1/6) and by EDGE."""
+    return {
+        (i, j)
+        for i in range(60)
+        for j in range(60)
+        if x[0] * 60 <= i + 0.5 < x[1] * 60 and y[0] * 60 <= j + 0.5 < y[1] * 60
+    }
+
+
+def _check_his_words(split: CellSplit, part: CellPart) -> None:
+    """A Story 4.20 part held to his verbatim words, quoted in its source:
+
+    * the half-cells his quoted words write (after the readings the source
+      states, ``read '12d' as I2d``) are **exactly** the half-cells the part
+      holds -- whole, in a fraction or in a crossing;
+    * every region's ``words`` are a phrase of those quotes and write the
+      region's own half-cell;
+    * a fraction is the one his words say (:data:`_FRACTION_WORDS`, the
+      lead's rule where he gave no size), and *mutta ei* (but not) makes it
+      the rest of the half-cell -- checked on the union of the part's
+      regions with those words;
+    * a crossing is his *risteys*, and a box of one half-cell where he says
+      *yhden ruudun kokoinen* (the size is required, with no default);
+    * a height band stands on his words about height, and its finite edge
+      is written in the source beside the measurement it comes from;
+    * the part's callout is in his quoted words, or the source says the
+      lead named it (``Named '<callout>' by the lead``).
+
+    **The limit, stated** (the one Story 4.18 accepted for cells): his words
+    exist twice in the repo only as the quote inside ``callouts.toml``, so a
+    fraction is held to that quote and not to his answer document, which
+    lives outside the repository. A misquote made identically in the quote
+    and the geometry passes here.
+    """
+    quotes = _HIS_WORDS.findall(part.source)
+    assert quotes, part.callout
+    assert part.callout in " ".join(quotes).lower() or (
+        f"Named '{part.callout}' by the lead" in part.source
+    ), part.callout
+    readings = _READ_AS.findall(part.source)
+    for written, _ in readings:
+        assert any(written in quote for quote in quotes), (part.callout, written)
+    written_cells = {c for q in quotes for c in _free_cells(_read(q, readings))}
+    held = set(part.cells)
+    for region in part.regions:
+        held |= {region.cell} if region.cell else set(region.crossing)
+    assert written_cells == held, (part.callout, written_cells ^ held)
+    groups: dict[tuple[str, str], list] = {}
+    for region in part.regions:
+        assert any(region.words in quote for quote in quotes), region.words
+        named = set(_free_cells(_read(region.words, readings)))
+        if region.crossing is not None:
+            assert set(region.crossing) <= named, region.words
+            assert "risteys" in region.words, region.words
+            if "yhden ruudun kokoinen" in region.words:
+                assert region.size == 1.0, region.words
+        else:
+            assert region.cell in named, (region.cell, region.words)
+            groups.setdefault((region.cell, region.words), []).append(region)
+        if region.z is not None:
+            assert any(
+                term in quote for quote in quotes for term in _HEIGHT_WORDS
+            ), part.callout
+            assert "zbands-mitattu-2026-09-28.md" in part.source, part.callout
+            for edge in region.z:
+                if edge not in (float("inf"), float("-inf")):
+                    assert f"{edge}" in part.source, (part.callout, edge)
+    for (cell, words), regions in groups.items():
+        x, y = _fraction_of(words)
+        expected = _samples(x, y)
+        if "mutta ei" in words:
+            expected = _samples(_WHOLE, _WHOLE) - expected
+        actual = set().union(*(_samples(r.x, r.y) for r in regions))
+        assert actual == expected, (part.callout, cell, words)
+
+
+def test_the_word_reader_reads_his_free_text() -> None:
+    """The readers :func:`_check_his_words` trusts, on his own spellings."""
+    assert _free_cells("F9a-d, h5d:ssä, H12B, G11dja E8b:hen, 12d, I0d") == [
+        "F9a", "F9b", "F9c", "F9d", "H5d", "H12b", "G11d", "E8b"
+    ]
+    assert _read("I3b ja 12d oikean", [("12d", "I2d")]).split() == [
+        "I3b", "ja", "I2d", "oikean"
+    ]
+    assert _fraction_of("I9a oikea reuna miinus cubby osuus eli oikean "
+                        "reunan kolmannes") == ((2 / 3, 1.0), _WHOLE)
+    assert _fraction_of("H11d oikea reuna (ehkä viidesosa ruudun oikeasta "
+                        "reunasta)") == ((0.8, 1.0), _WHOLE)
+    assert _fraction_of("J12A (mutta vain oikea alareuna)") == (
+        (0.5, 1.0), (0.5, 1.0)
+    )
+    assert _fraction_of("E12a kohdissa secondin päällä") == (_WHOLE, _WHOLE)
+    assert len(_samples((0.0, EDGE), _WHOLE)) == 15 * 60
 
 
 def test_the_row_reader_reads_his_range_form() -> None:
@@ -936,13 +1269,12 @@ _ANCIENT_PARTS = {
 }
 
 
-def test_ancient_splits_name_his_places_and_mark_the_two_readings() -> None:
+def test_ancient_splits_name_his_places_and_his_two_confirmed_readings() -> None:
     """His names through the loader's normalisation (the hyphen is kept),
     each part sourced from puoliruudut-vastaus. The two readings that
     correct what he wrote -- D7a for his second C7a, D9a-d for his F9a-d --
-    say so in their source (spec decision 5) and are ``inferred``, so they
-    print marked, until he confirms them (spec 4.18 review); every other
-    part is ``stated``."""
+    were ``inferred`` until he confirmed them on 2026-09-28 (Story 4.20);
+    now every part is ``stated``."""
     table = _ancient()
     parts = [p for area in _ANCIENT_PARTS for p in table[area].split.parts]
     for area, names in _ANCIENT_PARTS.items():
@@ -951,11 +1283,19 @@ def test_ancient_splits_name_his_places_and_mark_the_two_readings() -> None:
         ], area
     for part in parts:
         assert "puoliruudut-vastaus-2026-09-27.md" in part.source
-    assumed = {p.callout for p in parts if "Read as an assumption" in p.source}
-    assert assumed == {"a main", "outside main"}
-    assert {p.callout: p.confidence for p in parts if p.confidence != "stated"} == {
-        callout: "inferred" for callout in assumed
+    # Story 4.20: he confirmed both readings on 2026-09-28 (the answer's
+    # section 'Verbatim', answer 1), so both are stated and quote him.
+    confirmed = {
+        p.callout: p.source
+        for p in parts
+        if "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 1"
+        in p.source
     }
+    assert set(confirmed) == {"a main", "outside main"}
+    assert "'D7a kyllä a mainissa'" in confirmed["a main"]
+    assert "'Kyllä outside main on D9a-d ja C9b,C9d'" in confirmed["outside main"]
+    assert not any("Read as an assumption" in p.source for p in parts)
+    assert all(p.confidence == "stated" for p in parts)
 
 
 def test_a_split_does_not_remove_its_areas_junction() -> None:

@@ -90,6 +90,7 @@ __all__ = [
     "CalloutConfidence",
     "CalloutEntry",
     "CellPart",
+    "CellRegion",
     "CellSplit",
     "GuideFit",
     "MapCallouts",
@@ -1873,11 +1874,116 @@ class GuideFit(_Section):
 _HALF_CELL = re.compile(r"([A-Z])([1-9][0-9]*)([abcd])")
 
 
+#: A height band: a position at ``z`` is inside when ``lo <= z < hi``,
+#: half-open like a half-cell. ``-inf`` / ``inf`` leave a side open.
+ZBand = tuple[float, float]
+
+
+def _z_inside(band: ZBand | None, z: float) -> bool:
+    return band is None or band[0] <= z < band[1]
+
+
+#: A pixel rectangle ``(x0, y0, x1, y1)``, half-open like a half-cell.
+_Rect = tuple[float, float, float, float]
+
+
+def _rects_meet(one: _Rect, two: _Rect) -> bool:
+    """Whether two rectangles share area (touching edges share none)."""
+    return (
+        one[0] < two[2] and two[0] < one[2] and one[1] < two[3] and two[1] < one[3]
+    )
+
+
+def _bands_meet(one: ZBand | None, two: ZBand | None) -> bool:
+    open_band = (-float("inf"), float("inf"))
+    low_one, high_one = one if one is not None else open_band
+    low_two, high_two = two if two is not None else open_band
+    return low_one < high_two and low_two < high_one
+
+
+class CellRegion(_Section):
+    """A place finer than a half-cell (Story 4.20), in his own terms: a
+    **fraction** of one named half-cell, or a **crossing** -- the point where
+    named half-cells meet -- and either with an optional **height band**.
+
+    * ``cell`` with ``x`` and ``y``: ranges in [0, 1] of that half-cell, x
+      from its left and y from its **top** (pixel y grows downward), e.g.
+      the top fifth is ``y = [0, 0.2]``. A range left out is the whole.
+    * ``crossing``: the half-cells whose corners meet at one point, as a
+      box centred on it ``size`` half-cells wide and high. The size is
+      **required**, with no default: the precedents -- Nuke's postimerkki
+      and ct box, Ancient's dig -- are boxes of one half-cell (21.5 x 21.1
+      px on a 21.5 x 21.1 px half-cell), and his short boost is one half-cell
+      in his own words (*"noin yhden ruudun kokoinen"*), so each crossing
+      says its size where it is written.
+    * ``z``: the region holds a position only inside this band. A band is
+      measured from the positions of the place, never guessed (spec 4.20
+      decision 2), and its part's source cites the measurement.
+
+    ``words`` is his phrase the region is read from, quoted from the part's
+    source, so a test can hold the geometry to the words. It is provenance:
+    it moves no position.
+    """
+
+    cell: str | None = None
+    crossing: list[str] | None = None
+    x: tuple[float, float] = (0.0, 1.0)
+    y: tuple[float, float] = (0.0, 1.0)
+    size: float | None = None
+    z: ZBand | None = None
+    words: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check_the_region(self) -> "CellRegion":
+        if (self.cell is None) == (self.crossing is None):
+            raise ValueError(
+                "a region is either a fraction of one half-cell (cell) or a "
+                "crossing of half-cells (crossing), and exactly one of them."
+            )
+        if self.crossing is not None:
+            if len(self.crossing) < 2 or len(set(self.crossing)) != len(
+                self.crossing
+            ):
+                raise ValueError(
+                    f"the crossing {self.crossing} must name at least two "
+                    "distinct half-cells that meet."
+                )
+            if (self.x, self.y) != ((0.0, 1.0), (0.0, 1.0)):
+                raise ValueError(
+                    "x and y are fractions of one half-cell; a crossing has "
+                    "a size instead."
+                )
+            if self.size is None:
+                raise ValueError(
+                    f"the crossing {self.crossing} has no size; a crossing box "
+                    "says how many half-cells wide it is (one for postimerkki, "
+                    "ct box and dig), and there is no default."
+                )
+            if not 0 < self.size <= 2:
+                raise ValueError(
+                    f"a crossing box of {self.size} half-cells is not in (0, 2]."
+                )
+        elif self.size is not None:
+            raise ValueError("size belongs to a crossing, not to a fraction.")
+        for name, (low, high) in (("x", self.x), ("y", self.y)):
+            if not 0 <= low < high <= 1:
+                raise ValueError(
+                    f"{name} = [{low}, {high}] is not a range inside [0, 1] "
+                    "with the low end first."
+                )
+        if self.z is not None and not self.z[0] < self.z[1]:
+            raise ValueError(
+                f"the height band {list(self.z)} is not [lo, hi] with lo < hi."
+            )
+        return self
+
+
 class CellPart(_Section):
     """One of his callouts inside a split game area (Story 4.17): the
     half-cells of the guide grid it holds, and the small pixel boxes of a
     place smaller than a half-cell, which override the half-cells beneath
-    them.
+    them. Since Story 4.20 also :attr:`regions` finer than a half-cell, and
+    :attr:`broad`.
 
     It carries what a :class:`CalloutEntry` carries for a whole area --
     his name, whether it is a junction and on whose words, how sure the name
@@ -1889,6 +1995,16 @@ class CellPart(_Section):
     cells: list[str] = Field(default_factory=list)
     #: ``[x0, y0, x1, y1]`` in image pixels, half-open like a half-cell.
     boxes: list[tuple[float, float, float, float]] = Field(default_factory=list)
+    #: Fractions and crossings of half-cells, each with an optional height
+    #: band (:class:`CellRegion`, Story 4.20).
+    regions: list[CellRegion] = Field(default_factory=list)
+    #: **This part yields to every earlier part it overlaps** (Story 4.20):
+    #: it may claim a spot an earlier part claims, and the earlier part wins
+    #: there. That covers his broader name over the finer ones inside it
+    #: (his *banaani* over the names he gives within), and the place he
+    #: gives "minus" another (his *miinus*, *paitsi*). Every other double
+    #: claim is refused, and so is a broad part that overlaps no earlier part.
+    broad: bool = False
     junction: bool
     junction_source: str | None = Field(default=None, min_length=1)
     confidence: NamedConfidence
@@ -1907,10 +2023,10 @@ class CellPart(_Section):
                 f"{self.callout!r}: junction and junction_source come "
                 "together, as on an area's entry."
             )
-        if not self.cells and not self.boxes:
+        if not self.cells and not self.boxes and not self.regions:
             raise ValueError(
-                f"{self.callout!r} holds neither a half-cell nor a box, so no "
-                "position could ever be counted under it."
+                f"{self.callout!r} holds neither a half-cell nor a box nor a "
+                "region, so no position could ever be counted under it."
             )
         for box in self.boxes:
             if not (box[0] < box[2] and box[1] < box[3]):
@@ -1957,17 +2073,27 @@ class CellSplit(_Section):
     :attr:`zmin`, and every position with coordinates is split.
 
     **A position takes, in order:** the part whose box holds it; else the
-    part that names its half-cell; else **the nearest named half-cell's
-    part**, by the distance between half-cell centres in image pixels, a
+    **first part in table order** that names its half-cell or holds it in a
+    region (:class:`CellRegion`: a fraction, a crossing, either with a
+    height band the position's ``z`` must be inside -- Story 4.20); else
+    **the nearest named half-cell's part**, by the distance between
+    half-cell centres in image pixels, over whole named half-cells only, a
     tie going to the part and half-cell that come first in the table (his
-    words: join the rest to the nearest). The third is a derivation in code
-    and never a hand-filled row: :attr:`inherited` lists it for every
-    half-cell of the grid, and a position off the grid is placed by the same
-    rule.
+    words: join the rest to the nearest). **Table order decides, not the
+    kind of claim**: a whole half-cell written before a region holds the
+    region's spot too. The table is therefore written finer first, and a
+    part marked broad -- it yields to every earlier part it overlaps --
+    comes after the parts it yields to. The
+    third step is a derivation in code and never a hand-filled row:
+    :attr:`inherited` lists it for every half-cell no part names whole, and
+    a position off the grid is placed by the same rule.
 
-    **Refused at load:** a half-cell named twice, a half-cell outside the
-    grid, two parts with one callout, and two boxes that overlap -- each
-    would leave a position with two answers. Across the areas of one map,
+    **Refused at load:** a spot two parts claim at the same height, unless
+    the later part is marked :attr:`~CellPart.broad` (and a broad part that
+    overlaps no earlier part), a half-cell outside the grid, a crossing
+    with no size or whose half-cells do not meet at one point, two parts with one
+    callout, and two boxes that overlap -- each would leave a position with
+    two answers, or a flag with no meaning. Across the areas of one map,
     :func:`load_callouts` refuses splits on different grids
     (:data:`SPLIT_GRID_FIELDS`), so a half-cell's name means one place of
     the image on every split of the map.
@@ -1985,6 +2111,11 @@ class CellSplit(_Section):
 
     _named: dict[tuple[int, int], CellPart] = PrivateAttr(default_factory=dict)
     _nearest: dict[tuple[int, int], CellPart] = PrivateAttr(default_factory=dict)
+    #: Every named half-cell and region as (part, rectangle, band), in table
+    #: order: the lookup's second step reads it front to back.
+    _claims: list[tuple[CellPart, _Rect, ZBand | None]] = PrivateAttr(
+        default_factory=list
+    )
 
     @model_validator(mode="after")
     def _check_the_split(self) -> "CellSplit":
@@ -2021,16 +2152,51 @@ class CellSplit(_Section):
                 "is one row of the split."
             )
         named: dict[tuple[int, int], CellPart] = {}
-        for part in self.parts:
+        claims: list[tuple[int, _Rect, ZBand | None]] = []
+        for number, part in enumerate(self.parts):
+            own: set[tuple[int, int]] = set()
             for name in part.cells:
                 index = self.index_of(name)
-                if index in named:
+                earlier = named.get(index)
+                if index in own or (earlier is not None and not part.broad):
                     raise ValueError(
                         f"The half-cell {name} is claimed by both "
-                        f"{named[index].callout!r} and "
-                        f"{part.callout!r}. One half-cell has one callout."
+                        f"{(earlier or part).callout!r} and "
+                        f"{part.callout!r}. One half-cell has one callout, "
+                        "unless the later part is marked broad."
                     )
-                named[index] = part
+                own.add(index)
+                named.setdefault(index, part)
+                claims.append((number, self._rect_of(index), None))
+            for region in part.regions:
+                rect = self._region_rect(part, region)
+                claims.append((number, rect, region.z))
+        broad_used: set[int] = set()
+        for later, rect, band in claims:
+            for earlier, other, other_band in claims:
+                if earlier >= later:
+                    break
+                if _rects_meet(rect, other) and _bands_meet(band, other_band):
+                    if not self.parts[later].broad:
+                        raise ValueError(
+                            f"{self.parts[later].callout!r} claims a spot "
+                            f"{self.parts[earlier].callout!r} already "
+                            "claims, at the same height, and is not marked "
+                            "broad; a position there would have two callouts."
+                        )
+                    broad_used.add(later)
+        idle = [
+            part.callout
+            for number, part in enumerate(self.parts)
+            if part.broad and number not in broad_used
+        ]
+        if idle:
+            raise ValueError(
+                f"{', '.join(idle)} is marked broad but overlaps no earlier "
+                "part; broad says the part yields to every earlier part it "
+                "overlaps, and a flag that covers nothing says something "
+                "untrue."
+            )
         boxes = [(part, box) for part in self.parts for box in part.boxes]
         for i, (one, a) in enumerate(boxes):
             for two, b in boxes[i + 1 :]:
@@ -2043,7 +2209,58 @@ class CellSplit(_Section):
         # private storage before an "after" validator runs, so a half-cell
         # name is read here and never before the grid it names is checked.
         self._named.update(named)
+        self._claims.extend(
+            (self.parts[number], rect, band) for number, rect, band in claims
+        )
         return self
+
+    def _rect_of(self, index: tuple[int, int]) -> _Rect:
+        """A half-cell's pixel rectangle ``(x0, y0, x1, y1)``."""
+        half_width, half_height = self.cell[0] / 2, self.cell[1] / 2
+        return (
+            self.origin[0] + index[0] * half_width,
+            self.origin[1] + index[1] * half_height,
+            self.origin[0] + (index[0] + 1) * half_width,
+            self.origin[1] + (index[1] + 1) * half_height,
+        )
+
+    def _region_rect(self, part: CellPart, region: CellRegion) -> _Rect:
+        """A region's pixel rectangle: the fraction of its half-cell, or the
+        box on the crossing point. Refused if the crossing's half-cells do
+        not meet at one point."""
+        half_width, half_height = self.cell[0] / 2, self.cell[1] / 2
+        if region.cell is not None:
+            x0, y0, _, _ = self._rect_of(self.index_of(region.cell))
+            return (
+                x0 + region.x[0] * half_width,
+                y0 + region.y[0] * half_height,
+                x0 + region.x[1] * half_width,
+                y0 + region.y[1] * half_height,
+            )
+        indices = [self.index_of(name) for name in region.crossing or []]
+        # In index units a half-cell is [c, c + 1] x [r, r + 1], so the
+        # common point is exact integer arithmetic, never float equality.
+        left = max(column for column, _ in indices)
+        right = min(column + 1 for column, _ in indices)
+        top = max(row for _, row in indices)
+        bottom = min(row + 1 for _, row in indices)
+        if left != right or top != bottom:
+            raise ValueError(
+                f"{part.callout!r}: the half-cells {region.crossing} do not "
+                "meet at one point, so they name no crossing."
+            )
+        # Half-cells that meet at one point without sharing an edge meet
+        # inside the grid, at least one half-cell from its border, so a box
+        # of at most two half-cells (CellRegion refuses more) stays on it.
+        size = region.size or 0.0  # never None on a crossing (CellRegion)
+        px = self.origin[0] + left * half_width
+        py = self.origin[1] + top * half_height
+        return (
+            px - size * half_width / 2,
+            py - size * half_height / 2,
+            px + size * half_width / 2,
+            py + size * half_height / 2,
+        )
 
     def index_of(self, name: str) -> tuple[int, int]:
         """A half-cell's name -> its (column, row) index on the half-cell
@@ -2127,6 +2344,13 @@ class CellSplit(_Section):
             for box in part.boxes:
                 if box[0] <= px < box[2] and box[1] <= py < box[3]:
                     return part
+        for part, rect, band in self._claims:
+            if (
+                rect[0] <= px < rect[2]
+                and rect[1] <= py < rect[3]
+                and _z_inside(band, z)  # type: ignore[arg-type]
+            ):
+                return part
         return self._part_of(
             (
                 floor((px - self.origin[0]) / (self.cell[0] / 2)),
@@ -2275,6 +2499,64 @@ def named_places(
                 yield f"{area} split", part
 
 
+def _shared_parts(path: Path, map_name: str, areas: dict) -> dict:
+    """The map's raw areas with every ``parts_from = "<Area>"`` of a split
+    replaced by that area's split parts (Story 4.20).
+
+    His answers for Inferno name places across three split areas at once
+    (his top-of-mid answer points back to the boiler he named under
+    Apartments), and one half-cell holds
+    positions of two of them (I11a: Apartments and TopofMid), so the three
+    splits read **one** table -- written once and derived, not three copies
+    that may drift. Each split still renames only its own area's positions.
+    The table must be written on a split that does not itself borrow.
+
+    Raises:
+        SettingsError: The named area has no split, or borrows itself, or
+            disagrees with the borrower on junction.
+    """
+    shared = {}
+    for area, entry in areas.items():
+        split = entry.get("split") if isinstance(entry, dict) else None
+        if not isinstance(split, dict) or "parts_from" not in split:
+            shared[area] = entry
+            continue
+        origin = split["parts_from"]
+        source = areas.get(origin)
+        source_split = source.get("split") if isinstance(source, dict) else None
+        if (
+            not isinstance(source_split, dict)
+            or "parts_from" in source_split
+            or "parts" in split
+        ):
+            raise SettingsError(
+                f"The callout table {path}: [{map_name}.{area}.split] takes "
+                f"parts_from = {origin!r}, which must be another area of "
+                f"[{map_name}] whose split writes its own parts; and a split "
+                "that borrows its parts writes none of its own."
+            )
+        # A part's junction follows the junction of the split area whose
+        # positions it holds (the Story 4.18 rule), and the shared rows were
+        # written for the lending area's: a borrower that disagrees would
+        # carry a flag derived for another kind of place.
+        if entry.get("junction") != source.get("junction"):
+            raise SettingsError(
+                f"The callout table {path}: [{map_name}.{area}] borrows the "
+                f"parts of [{map_name}.{origin}] but disagrees with it on "
+                "junction; a shared part's junction is derived from the "
+                "junction of the areas whose positions it holds, so the two "
+                "must agree."
+            )
+        rest = {key: value for key, value in split.items() if key != "parts_from"}
+        shared[area] = {
+            **entry,
+            # The raw rows, not a copy: each split validates them into its
+            # own part objects.
+            "split": {**rest, "parts": source_split.get("parts", [])},
+        }
+    return shared
+
+
 def load_callouts(
     map_pool: list[str], path: Path = CALLOUT_TABLE_PATH
 ) -> dict[str, MapCallouts]:
@@ -2349,6 +2631,7 @@ def load_callouts(
                 f"[{map_name}.<game area>] table per area and nothing else, "
                 "and at least one."
             )
+        areas = _shared_parts(path, map_name, areas)
         try:
             entries = {
                 area: CalloutEntry(**entry) for area, entry in areas.items()

@@ -6,11 +6,11 @@
         "round_no": 1,
         "rows": [
           "  - 2 b doors",
-          "    - 1 b site ⇄ b doors -> mid doors -> ct spawn -> short boost/elevator (karkea) -> kuoli short boost/elevator (karkea) (36 s)",
+          "    - 1 b site ⇄ b doors -> mid doors -> ct spawn -> ct ramppi -> kuoli ct ramppi (36 s)",
           "    - 1 b site -> window -> mid doors -> ct spawn",
+          "  - 1 fast cat -> short stairs -> kuoli short stairs (29 s)",
           "  - 1 mid -> tunnelin portaat ⇄ mid -> catwalk -> short a",
-          "  - 1 short a -> short stairs -> catwalk -> kuoli catwalk (26 s)",
-          "  - 1 short boost/elevator (karkea) -> short stairs -> kuoli short stairs (29 s)"
+          "  - 1 short a -> short stairs -> catwalk -> kuoli catwalk (26 s)"
         ],
         "won": false
       },
@@ -18,7 +18,7 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 2 short boost/elevator (karkea) -> short stairs",
+          "  - 2 fast cat -> short stairs",
           "    - 1 catwalk ⇄ short stairs",
           "    - 1 catwalk -> kuoli catwalk (25 s)",
           "  - 1 lower b -> tunnelin portaat -> upper b -> kuoli upper b (17 s)",
@@ -31,9 +31,9 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 2 short boost/elevator (karkea) -> short stairs -> catwalk ⇄ short stairs -> short a -> 1 short a, 1 kuoli short a (45 s)",
+          "  - 2 fast cat -> short stairs -> catwalk ⇄ short stairs -> short a -> 1 short a, 1 kuoli short a (45 s)",
           "  - 1 b doors -> b site ⇄ b doors -> mid doors -> ct spawn",
-          "  - 1 mid doors -> b doors ⇄ mid doors -> ct spawn -> short boost/elevator (karkea)",
+          "  - 1 mid doors -> b doors ⇄ mid doors -> ct spawn -> ct ramppi",
           "  - 1 short a -> short stairs -> catwalk ⇄ short stairs -> short a"
         ],
         "won": false
@@ -83,8 +83,9 @@
         "round_no": 1,
         "rows": [
           "  - 3 ruins -> b site",
-          "    - 2 banana (karkea) -> ylämidi (karkea) -> 1 arch ⇄ ylämidi (karkea), 1 ct talo (karkea)",
+          "    - 1 auto -> yläbanaani -> alabanaani -> porch -> apartments -> window",
           "    - 1 ct spawn -> a site -> arch",
+          "    - 1 yläbanaani -> alabanaani -> long -> arch ⇄ long",
           "  - 2 a site -> 1 a site, 1 balcony ⇄ a site"
         ],
         "won": true
@@ -96,12 +97,12 @@
         "round_no": 13,
         "rows": [
           "  - 3 t spawn -> alamidi -> t ramp",
-          "    - 2 banana (karkea)",
-          "      - 1 middle",
-          "      - 1 second mid -> ylämidi (karkea) -> a site",
+          "    - 2 alabanaani",
+          "      - 1 logit ⇄ alabanaani -> auto -> yläbanaani -> alabanaani -> middle",
+          "      - 1 second mid -> porch -> a site",
           "    - 1 middle -> kuoli middle (15 s)",
           "  - 2 alamidi -> second mid",
-          "    - 1 balcony -> ct talo (karkea) -> a site",
+          "    - 1 balcony -> apartments -> boiler -> a site",
           "    - 1 kuoli second mid (16 s)"
         ],
         "won": true
@@ -251,10 +252,10 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 2 alley -> b site -> connector -> canal (karkea) -> main -> a site",
+          "  - 2 alley -> b site -> connector -> canal -> boat -> main -> a site",
           "  - 2 middle",
           "    - 1 a site -> TunnelStairs (pelin nimi) -> kuoli heaven (36 s)",
-          "    - 1 bridge -> canal (karkea) -> main -> kuoli main (35 s)",
+          "    - 1 bridge -> canal -> boat -> main -> kuoli main (35 s)",
           "  - 1 palace -> kuoli middle (45 s)"
         ],
         "won": true
@@ -266,13 +267,13 @@
         "round_no": 13,
         "rows": [
           "  - 4 ruins",
-          "    - 2 bridge -> canal (karkea)",
+          "    - 2 bridge -> canal",
           "      - 1 connector -> b site -> backsite -> kuoli backsite (29 s)",
-          "      - 1 kuoli canal (karkea) (21 s)",
+          "      - 1 kuoli canal (21 s)",
           "    - 2 outside long",
           "      - 1 b site -> connector -> kuoli connector (44 s)",
           "      - 1 kuoli outside long (15 s)",
-          "  - 1 t spawn -> ruins -> bridge -> canal (karkea) -> connector -> kuoli b site (23 s)"
+          "  - 1 t spawn -> ruins -> bridge -> canal -> connector -> kuoli b site (23 s)"
         ],
         "won": false
       }
@@ -282,10 +283,12 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 2 ruins -> b site -> banana (karkea) ⇄ b site -> ct spawn",
-          "  - 1 a site -> balcony -> ct talo (karkea) ⇄ balcony -> kuoli balcony (27 s)",
-          "  - 1 arch -> ylämidi (karkea) ⇄ arch -> kuoli a site (32 s)",
-          "  - 1 ylämidi (karkea) -> a site -> balcony ⇄ a site -> kuoli a site (30 s)"
+          "  - 2 ruins -> b site",
+          "    - 1 auto -> yläbanaani -> b site -> ct spawn",
+          "    - 1 yläbanaani ⇄ b site -> ct spawn",
+          "  - 1 a site -> balcony -> partsikäytävä ⇄ balcony -> kuoli balcony (27 s)",
+          "  - 1 arch -> close/brackets (päätelty) ⇄ arch -> kuoli a site (32 s)",
+          "  - 1 long -> porch -> a site -> balcony ⇄ a site -> kuoli a site (30 s)"
         ],
         "won": false
       }
@@ -297,7 +300,7 @@
         "rows": [
           "  - 4 t spawn",
           "    - 2 alamidi",
-          "    - 1 ct talo (karkea) -> t talo (päätelty)",
+          "    - 1 t apartments -> t talo (päätelty)",
           "    - 1 t spawn",
           "  - 1 alamidi -> t ramp"
         ],
@@ -386,7 +389,7 @@
         "rows": [
           "  - 5 t-kuutio",
           "    - 4 hall",
-          "      - 3 a main (päätelty) -> a site -> 2 a site, 1 kuoli a site (31 s)",
+          "      - 3 a main -> a site -> 2 a site, 1 kuoli a site (31 s)",
           "      - 1 a site",
           "    - 1 t-elbow -> middle -> mid talo"
         ],
@@ -414,7 +417,9 @@
         "round_no": 13,
         "rows": [
           "  - 2 ruins -> outside long -> b site -> 1 kuoli b site (22 s), 1 kuoli b site (30 s)",
-          "  - 2 street -> canal (karkea) -> 1 kuoli canal (karkea) (11 s), 1 kuoli connector (18 s)",
+          "  - 2 street -> stairs",
+          "    - 1 canal -> kuoli connector (18 s)",
+          "    - 1 kuoli canal (11 s)",
           "  - 1 outside long -> b site -> kuoli b site (16 s)"
         ],
         "won": false
@@ -452,6 +457,6 @@
     ]
   },
   "limit": "A row is a string, so this catches the model and the renderer together and cannot say which of the two moved. It cannot be re-derived without the archive: the tests that read it without one assert on its own contents, which is a different job. The rows are read on the grid settings.toml declares, because _on_grid filters one demo of this archive down to it permanently -- so the table is the report on THAT grid and not on whatever grid a demo happens to be parsed at. It is an observation and not a rule: importing a demo changes these rows legitimately, and the answer is then to measure the table again and say so in the commit.",
-  "measured": "2026-09-27",
+  "measured": "2026-09-28",
   "note": "EVERY pistol block of every recorded team, keyed team/map/side/pistol, with the route rows as the view renders them from the real archive (Stories 4.11 and 4.13). Produced by running tests/test_calibration._route_blocks_from over the archive -- the same code path the test that reads it back uses -- so the file records what the tool produces and not a hand-written expectation. Since Story 4.13 the route reads every sample point, compresses each player's path to the product owner's junctions and speaks his callouts (src/pappascout/callouts.toml). The rows carry callouts, player counts and measured seconds only: the block's heading, which names the opponent and the date, is DELIBERATELY NOT HERE -- the repository is public and the denylist that guards it lives outside the repository (AD-12). What the heading states is pinned without the names in match_counts.json's played table."
 }

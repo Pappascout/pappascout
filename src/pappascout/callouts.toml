@@ -67,7 +67,13 @@
 #               coarse only when it covers several of HIS callouts.
 #   inferred -- a reading the source itself marks as inferred, unconfirmed or
 #               a match of names that is not exact, or a callout only the
-#               coordinates propose
+#               coordinates propose. For a PART of a split (Story 4.20,
+#               narrowing Story 4.18's rule that every reading of ours is
+#               inferred): a reading of his cells that MOVES a counted
+#               position of the split area is inferred until he confirms
+#               it; a reading that moves none stays stated, with the
+#               reading written in its source; and a name that is the
+#               lead's and not his is inferred (mid doors window)
 #   guess    -- he offered it as his own guess
 #   unnamed  -- the place has no callout at all (``callout`` is absent)
 # stated, guide and measured are CERTAIN and print unmarked; inferred and
@@ -130,6 +136,66 @@
 #                      named like an area IS that place: the two must agree
 #                      on junction, and the area must not be coarse; the
 #                      counts merge.
+#                      FINER THAN A HALF-CELL (Story 4.20). A part may also
+#                      hold regions, each { cell, x, y, z, words } -- a
+#                      fraction of one half-cell, x and y ranges in [0, 1]
+#                      from its left and TOP (the top fifth is y = [0,
+#                      0.2]) -- or { crossing, size, z, words }: the point
+#                      where the named half-cells meet, as a box size
+#                      half-cells wide and high. size is REQUIRED and has no
+#                      default: the precedents (postimerkki, ct box, dig) are
+#                      boxes of one half-cell, and his short boost is one in
+#                      his own words. z = [lo, hi] is a height band: the
+#                      region holds a position only with lo <= z < hi.
+#                      THE BAND RULE. A band exists only where the live ticks
+#                      of the map inside its regions show two levels: at
+#                      least 5 ticks on each side of the largest gap in their
+#                      z, the gap at least 36 units (twice the game's 18-unit
+#                      step, so no walking crosses it), and at least 1.5
+#                      times the second-largest gap. The edge is that gap's
+#                      midpoint, to two decimals. Which part is above is
+#                      derived where the game's areas tell the levels apart
+#                      (the source names the game area of each level) and
+#                      rests on his words where they do not. A place he names
+#                      by height that fails the rule gets no band, and its
+#                      source says so. All of it is re-derived by -m archive.
+#                      words is his phrase the region is read from. A
+#                      position takes the FIRST part in table order whose
+#                      half-cell or region (and band) holds it -- table order
+#                      decides, not the kind of claim -- so finer parts come
+#                      first; then the nearest named half-cell, as above.
+#                      Two parts may claim one spot at one height only when
+#                      the later one says broad = true: THIS PART YIELDS TO
+#                      EVERY EARLIER PART IT OVERLAPS. That covers his
+#                      broader name over the finer ones inside it (banaani,
+#                      yläbanaani) and the place he gives "minus" another
+#                      (miinus, paitsi). A broad part that overlaps nothing
+#                      is refused.
+#                      THE LEAD'S RULE FOR SIZES HE DID NOT GIVE (2026-09-28,
+#                      A1 and A2 of puoliruudut-taulukot-2026-09-28.md): an
+#                      edge he does not quantify (yläreuna, alareuna, oikea
+#                      reuna) is 1/4 of the half-cell on that side; a corner
+#                      he does not quantify (vasen ylänurkka ...) is half its
+#                      width by half its height, his own size for a corner
+#                      ('vasen nurkka (puolet korkeudesta ja leveydestä)');
+#                      and an edge named with a side ('oikea alareuna',
+#                      'yläoikeasta reunasta') is that corner. A part's source
+#                      says where it rests on this rule.
+#                      parts_from = "<Area>" in a split reads that area's
+#                      split parts instead of writing its own: one table for
+#                      several splits of a map (Inferno's three), each still
+#                      renaming only its own area's positions. The borrower
+#                      must agree with the lender on junction, because a
+#                      shared part's junction is derived from the areas whose
+#                      positions it holds.
+#                      A PART'S JUNCTION (the Story 4.18 rule, and Story 4.20
+#                      for parts outside their area): a part named like an
+#                      area takes that area's; else a part holding positions
+#                      of its split areas takes theirs; else it takes the
+#                      junction of the game area its region lies in, by the
+#                      map's live ticks. Each part's source ends with the
+#                      "Junction basis" it rests on, which the tests hold the
+#                      flag to.
 #   junction        -- see the rule above. A transit place drops out of the
 #                      middle of a route; a place with no callout is always
 #                      kept, so the flag stays visible.
@@ -147,7 +213,8 @@
 # Only callout, junction, coarse, confidence and split change the report, and
 # only those go into the aggregate's parameter hash (AD-1): editing one of
 # them re-runs ``aggregate``; editing a source, a note, a neighbour count, a
-# split's image or a comment does not.
+# split's image, a region's words or a comment does not. A split's parts are
+# hashed in their order, because table order decides a shared spot.
 
 [de_nuke.Admin]
 callout = "admin"
@@ -743,7 +810,138 @@ junction = false
 neighbours = 6
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'Tuo dust2 alue on CT:n ja long crossin välissä se jakautuu short boost, siitä mistä pääsee shorttiin hyppimällä lähempänä CT spawnia ja elevator on se nurkka lähempänä siteä'"
-note = "One game area holding two of his callouts (short boost, elevator): the coarse name, flagged. A route from CT spawn toward short in his words, not a contact point, so transit."
+note = "One game area holding two of his callouts (short boost, elevator): the coarse name, flagged. A route from CT spawn toward short in his words, not a contact point, so transit. Since Story 4.20 its positions are counted under fast cat, elevator, ct ramppi, ct cross, a site and ramp by the split below; his short boost of 2026-09-26 ('siitä mistä pääsee shorttiin hyppimällä') is the fast cat of 2026-09-28 ('H3a on fast cat, mistä pääsee hyppimään ylös laatikoita pitkin shorttiin')."
+
+[de_dust2.UnderA.split]
+image = "kartta04_sivu4_1024x1024.png"
+origin = [0.0, 0.0]
+cell = [95.75763568282127, 99.32050816714764]
+columns = "ABCDEFGHIJK"
+rows = 11
+source = "the grid of the pictures in puoliruudut-2026-09-27/, made by grid2.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), columns from A and rows from 1, half-cells a top-left, b top-right, c bottom-left, d bottom-right (puoliruudut-vastaus-2-2026-09-28.md: 'The grids are those of the pictures in puoliruudut-2026-09-27/, drawn by grid2.py'); the columns and rows are the fewest whole cells that cover the image. The fit is the unrounded one grid2.py drew the pictures with (koordinaatit-mitattu-2026-09-27.md gives it rounded to sx 0.2253, sy 0.2337, bx 559.7, by 768.8), moved here from tests/data/guide_fit.json in Story 4.20; it was made on every position with no floor cut, so there is no zmin and every position is split. His answer of 2026-09-28 morning (puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9) names the places below the half-cell -- fractions, crossings, height bands and nested names -- read into the parts as tabled in puoliruudut-taulukot-2026-09-28.md, with the readings he answered the same morning (section 'His answers to the four open readings, same morning'). A half-cell no part names whole takes the nearest named one's callout (spec 4.20 decision 4). Every split of de_dust2 is on this one grid, and the loader refuses them if they disagree."
+
+[de_dust2.UnderA.split.fit]
+sx = 0.22531208395957947
+sy = 0.23369531333446503
+bx = 559.6740112304688
+by = 768.7691650390625
+
+[[de_dust2.UnderA.split.parts]]
+callout = "goose"
+cells = ["I2b", "J2a"]
+junction = true
+junction_source = "holds none of the split area's positions; its region lies in the game's BombsiteA (37 of the 51 live ticks of the map inside it), whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'I2b,J2a ovat goose'; finer than ramp in J2a (A26). Junction basis: holds none of the split area's positions; its region lies in the game's BombsiteA (37 of the 51 live ticks of the map inside it)"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "elevator"
+regions = [
+  { cell = "H3b", y = [0.5, 1.0], words = "H3b alapuolisko" },
+  { cell = "I3a", x = [0.0, 0.5], y = [0.5, 1.0], words = "I3a vasen nurkka (puolet korkeudesta ja leveydestä)" },
+]
+junction = false
+confidence = "inferred"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H3b alapuolisko ja I3a vasen nurkka (puolet korkeudesta ja leveydestä) on elevator'; the corner is his own size, read as the bottom-left, continuing H3b's bottom half in the same row (A27). H3b's bottom half confirmed by his answer to the review tie, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the two review ties, afternoon 2026-09-28', answer 2, his words: 'H3b:n yläpuolisko on shortia ja alapuolisko elevator'. Confidence inferred: the bottom-left reading of I3a's corner moves 9 UnderA positions, and he has not confirmed it (the 4.20 confidence rule). Junction basis: holds positions of UnderA"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "short a"
+cells = ["H2d", "H2b", "H2c", "G2d"]
+regions = [
+  { cell = "H3b", y = [0.0, 0.5], words = "H3b:n yläpuolisko on shortia" },
+  { cell = "G2a", y = [0.75, 1.0], words = "G2a:n alareuna" },
+  { cell = "G3b", z = [-8.76, inf], words = "nämä erottaa shortin ruuduista G3b,G3d z koordinaatti" },
+  { cell = "G3d", z = [-8.76, inf], words = "nämä erottaa shortin ruuduista G3b,G3d z koordinaatti" },
+]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H2d,H2b rivillä siitä G2a:n alareuna,H2d,H2c,G2d,G3b;G3d' and his words: 'nämä erottaa shortin ruuduista G3b,G3d z koordinaatti'; H2d written twice, read as one; G2a's edge sized by the lead's rule for edges and corners (callouts.toml header). His short is the game's ExtendedA (its ticks are the upper level of G3b and G3d, zbands-mitattu-2026-09-28.md): Named 'short a' by the lead, so the counts merge. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, G3b and G3d): the live ticks of the map inside the region fall in two levels, the largest gap running from -113.00 to 95.48 (47 below, 81 above); the band edge -8.76 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's ExtendedA (81 of 81 ticks above), the lower the game's CTSpawn (47 of 47 below); short is the upper level. H3b's top half by his answer to the review tie, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the two review ties, afternoon 2026-09-28', answer 2, his words: 'H3b:n yläpuolisko on shortia ja alapuolisko elevator', with no height band, as he gives it -- although by the band rule of the callouts.toml header H3b's top half shows two levels (18 UnderA positions at z -52 to 44 below a gap to 5 ticks at 127 to 155; zbands-mitattu-2026-09-28.md), so its 18 UnderA positions are counted as short a on his word. NOT BUILT: his 'H3a:n yläreuna' (A28): H3a's top edge fails the band rule of the callouts.toml header (7 live ticks, one of them below the largest gap; zbands-mitattu-2026-09-28.md), so fast cat keeps it. Junction basis: the same place as the game's ExtendedA -- transit, and the UnderA positions it holds since his tie answer are of a transit area too, so the two rules agree"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "short stairs"
+cells = ["G4b", "G4d"]
+junction = true
+junction_source = "the same place as the game's ShortStairs (callout 'short stairs'), whose junction it must share: reittimalli-dust2-2026-09-26.md his words: 'viimeistään short stairs kohdalla ... tulee kontakti'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'G3b,G4d on jo short portaat'; read 'G3b,G4d' as G4b, G4d -- the second G3b of his sentence read as G4b (A29) -- G4b holds no UnderA position, so the reading moves none and stays stated. His short portaat is the game's ShortStairs: Named 'short stairs' by the lead, so the counts merge. Junction basis: the same place as the game's ShortStairs"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "ct spawn"
+cells = ["G3a", "G3c"]
+regions = [
+  { cell = "G3b", z = [-inf, -8.76], words = "nämä erottaa shortin ruuduista G3b,G3d z koordinaatti" },
+  { cell = "G3d", z = [-inf, -8.76], words = "nämä erottaa shortin ruuduista G3b,G3d z koordinaatti" },
+]
+junction = true
+junction_source = "the same place as the game's CTSpawn (callout 'ct spawn'), whose junction it must share: a spawn (spec-4-13-the-route-through-his-junctions.md: spawns are junctions)"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'CT spawn näkyy juuri ja juuri ruuduissa G3a-d, nämä erottaa shortin ruuduista G3b,G3d z koordinaatti'; the game's CTSpawn is ct spawn, so the counts merge. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, G3b and G3d): the live ticks of the map inside the region fall in two levels, the largest gap running from -113.00 to 95.48 (47 below, 81 above); the band edge -8.76 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's ExtendedA (81 of 81 ticks above), the lower the game's CTSpawn (47 of 47 below); CT spawn is the lower level. Junction basis: the same place as the game's CTSpawn"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "fast cat"
+cells = ["H3a"]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H3a on fast cat, mistä pääsee hyppimään ylös laatikoita pitkin shorttiin'. Junction basis: holds positions of UnderA"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "ct ramppi"
+cells = ["H3c", "H3d", "I3c"]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H3c tulee juuri ulos ct spawnista ja on ct ramppi ja menee H3d ja I3c asti'. Junction basis: holds positions of UnderA"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "ct cross"
+cells = ["I3d", "I4b", "J3c", "J4a"]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'I3d,I4b,J3c,J4a,I4b ovat Ct cross'; I4b written twice, read as one (A30), moving no position. Junction basis: holds positions of UnderA"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "auto"
+cells = ["J4d", "J4b", "J3d"]
+junction = true
+junction_source = "holds none of the split area's positions; its region lies in the game's LongA (38 of the 38 live ticks of the map inside it), whose entry is a junction: reittimalli-dust2-2026-09-26.md his words: 'kun ct pelaaja on long A kulmalla mistä näkee longboxiin'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'J4d,J4b,J3d ovat auto'. Junction basis: holds none of the split area's positions; its region lies in the game's LongA (38 of the 38 live ticks of the map inside it)"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "ramp"
+cells = ["J2c", "J3a", "J3b", "J2d", "J2b", "J2a"]
+regions = [
+  { cell = "I3b", x = [0.6666666666666666, 1.0], words = "I3b ja 12d oikean reunan kolmannes" },
+  { cell = "I2d", x = [0.6666666666666666, 1.0], words = "I3b ja 12d oikean reunan kolmannes" },
+]
+broad = true
+junction = true
+junction_source = "the same place as the game's ARamp (callout 'ramp'), whose junction it must share: reittimalli-dust2-2026-09-26.md his words: 'siinä crosin kohdalla on paljastunut ct spawniin'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'I3b ja 12d oikean reunan kolmannes, sekä J2c,J3a,J3b,J2d,J2b,J2a ovat A ramppi'; read '12d' as I2d, as his next sentence pairs 'I2d ja I3b paitsi rampin alue' (A7) -- I2d holds no UnderA position, so the reading moves none and stays stated. His A ramppi is the game's ARamp, callout ramp, so the counts merge. Broad: it yields to every earlier part it overlaps, so J2a, which goose names whole before it, is goose's -- ramp holds none of J2a (A26); and I2d's and I3b's thirds are ramp's, which a site after it yields to. Junction basis: the same place as the game's ARamp"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "a site"
+cells = ["I2d", "I3b", "I2c", "I3a"]
+broad = true
+junction = true
+junction_source = "the same place as the game's BombsiteA (callout 'a site'), whose junction it must share: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'I2d ja I3b paitsi rampin alue, sekä I2c, sekä I3a (miinus elevator alue) ovat A siteä'; the game's BombsiteA is a site, so the counts merge. Broad: it yields to every earlier part it overlaps, taking what ramp and elevator leave -- his 'paitsi' and 'miinus'. Junction basis: the same place as the game's BombsiteA -- it also holds UnderA positions, whose area is transit; the merge outranks the split-area rule, because the loader holds one callout to one junction"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "gandalf"
+cells = ["H2a", "G2b"]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H2a ja G2b ovat gandalf'. Junction basis: holds none of the split area's positions; its region lies in the game's ExtendedA (16 of the 16 live ticks of the map inside it)"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "ninja"
+cells = ["G2a"]
+broad = true
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'G2a on ninja'; broad: it yields to every earlier part it overlaps, taking what short a's bottom edge leaves in G2a (A31). Junction basis: holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's ExtendedA by that entry's measurement ('the top of SHORT A, up to NINJA')"
 
 [de_dust2.UpperTunnel]
 callout = "upper b"
@@ -761,7 +959,22 @@ junction_source = "alueomistus-pohja-2026-09-26.md de_inferno: 'ct apps on myös
 neighbours = 6
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_inferno table: Apartments = ct talo (long hall / partsikäytävä, window room, the boiler side), corrected 2026-09-26"
-note = "One game area holding several of his callouts: the coarse name, flagged."
+note = "One game area holding several of his callouts: the coarse name, flagged. Since Story 4.20 its positions are counted under his places by the split below, which reads the one Inferno table written on [de_inferno.Banana.split]."
+
+[de_inferno.Apartments.split]
+image = "kartta06_sivu6_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [99.78908959436282, 99.28889365654648]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+parts_from = "Banana"
+source = "the grid of the pictures in puoliruudut-2026-09-27/, made by grid2.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), columns from A and rows from 1, half-cells a top-left, b top-right, c bottom-left, d bottom-right (puoliruudut-vastaus-2-2026-09-28.md: 'The grids are those of the pictures in puoliruudut-2026-09-27/, drawn by grid2.py'); the columns and rows are the fewest whole cells that cover the image. The fit is the unrounded one grid2.py drew the pictures with (koordinaatit-mitattu-2026-09-27.md gives it rounded to sx 0.2348, sy 0.2336, bx 514.2, by 1079.1; the picture script's fit_inf2.npy), moved here from the picture script only in Story 4.20; it was made on every position with no floor cut, so there is no zmin and every position is split. His answer of 2026-09-28 morning (puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6) names the places below the half-cell -- fractions, crossings, height bands and nested names -- read into the parts as tabled in puoliruudut-taulukot-2026-09-28.md, with the readings he answered the same morning (section 'His answers to the four open readings, same morning'). A half-cell no part names whole takes the nearest named one's callout (spec 4.20 decision 4). Every split of de_inferno is on this one grid, and the loader refuses them if they disagree. The parts are [de_inferno.Banana.split]'s, one table for the three Inferno splits (parts_from; A13: 'Boilerin kävimme jo apsien kohdalla'); this split renames only Apartments's positions."
+
+[de_inferno.Apartments.split.fit]
+sx = 0.234797857869089
+sy = 0.23362092625069758
+bx = 514.2199095575344
+by = 1079.122363375169
 
 [de_inferno.Arch]
 callout = "arch"
@@ -795,7 +1008,387 @@ junction_source = "alueomistus-pohja-2026-09-26.md de_inferno: 'banaani on konta
 neighbours = 5
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_inferno table: Banana = banaani, with logs, the half-wall and car inside it; calloutit.md guide: BANANA"
-note = "One game area holding several of his callouts (logs, half-wall, car, sandbags): the coarse name, flagged."
+note = "One game area holding several of his callouts (logs, half-wall, car, sandbags): the coarse name, flagged. Since Story 4.20 its positions are counted under his places by the split below, which also holds the one Inferno table the Apartments and TopofMid splits read. The coarse name stays banana for a rule row on the whole area, so his broadest part is written banaani, as he wrote it."
+
+[de_inferno.Banana.split]
+image = "kartta06_sivu6_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [99.78908959436282, 99.28889365654648]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+source = "the grid of the pictures in puoliruudut-2026-09-27/, made by grid2.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), columns from A and rows from 1, half-cells a top-left, b top-right, c bottom-left, d bottom-right (puoliruudut-vastaus-2-2026-09-28.md: 'The grids are those of the pictures in puoliruudut-2026-09-27/, drawn by grid2.py'); the columns and rows are the fewest whole cells that cover the image. The fit is the unrounded one grid2.py drew the pictures with (koordinaatit-mitattu-2026-09-27.md gives it rounded to sx 0.2348, sy 0.2336, bx 514.2, by 1079.1; the picture script's fit_inf2.npy), moved here from the picture script only in Story 4.20; it was made on every position with no floor cut, so there is no zmin and every position is split. His answer of 2026-09-28 morning (puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, 6 and 7) names the places below the half-cell -- fractions, crossings, height bands and nested names -- read into the parts as tabled in puoliruudut-taulukot-2026-09-28.md, with the readings he answered the same morning (section 'His answers to the four open readings, same morning'). A half-cell no part names whole takes the nearest named one's callout (spec 4.20 decision 4). Every split of de_inferno is on this one grid, and the loader refuses them if they disagree."
+
+[de_inferno.Banana.split.fit]
+sx = 0.234797857869089
+sy = 0.23362092625069758
+bx = 514.2199095575344
+by = 1079.122363375169
+
+[[de_inferno.Banana.split.parts]]
+callout = "grill/pool"
+regions = [
+  { cell = "G5b", y = [0.0, 0.25], words = "G5b ja H5a yläreuna" },
+  { cell = "H5a", y = [0.0, 0.25], words = "G5b ja H5a yläreuna" },
+]
+junction = true
+junction_source = "inside cross ('Näistä G5b ja H5a yläreuna'): holds none of the split area's positions; its region lies in the game's BombsiteB (219 of the 219 live ticks of the map inside it), whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'Näistä G5b ja H5a yläreuna ovat grill/pool'; the top edges of G5b and H5a, sized by the lead's rule for edges and corners (callouts.toml header). Finer than cross ('Näistä' -- of these; A9). He could not see whether pool reaches above G5b and H5a ('kuvasta ei ihan näe jatkuisiko G5b ja H5a yläpuolella pool vielä hieman pidemmälle'), so nothing above them is built. Junction basis: inside cross, whose basis it shares ('Näistä G5b ja H5a yläreuna'); no live tick of the map lies in it"
+
+[[de_inferno.Banana.split.parts]]
+callout = "ct boost"
+cells = ["H5d"]
+junction = true
+junction_source = "inside ct ('H5d on CT:ssä Beellä boost'): holds none of the split area's positions; its region lies in the game's BombsiteB (101 of the 160 live ticks of the map inside it), whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'H5d on CT:ssä Beellä boost' and his words: '(joissa h5d:ssä z koordinaatti paljastaa onko pelaaja buustissa'; the name is his, confirmed the same morning: puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', first line, his words: 'Kaksi boostia ovat ct boost ja short boost'. No height band: the live ticks of H5d do show a gap, from 138.57 to 245.87, but only 4 lie above it, so it fails the band rule of the callouts.toml header (zbands-mitattu-2026-09-28.md); the whole of H5d is ct boost, as his first words give it. Junction basis: inside ct, whose basis it shares ('H5d on CT:ssä Beellä boost')"
+
+[[de_inferno.Banana.split.parts]]
+callout = "ct"
+cells = ["H5b"]
+regions = [
+  { cell = "H5c", x = [0.5, 1.0], y = [0.0, 0.5], words = "H5c oikea ylänurkka" },
+  { cell = "H5a", x = [0.5, 1.0], y = [0.5, 1.0], words = "H5a oikea alanurkka" },
+]
+junction = true
+junction_source = "holds none of the split area's positions; its region lies in the game's BombsiteB (101 of the 160 live ticks of the map inside it), whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'H5c oikea ylänurkka ja H5a oikea alanurkka on CT:n alku Bllä ja se jatkuu hielä H5b'; the two corners sized by the lead's rule for edges and corners (callouts.toml header). His 'ja H5d ruutuihin (joissa h5d:ssä z koordinaatti paljastaa onko pelaaja buustissa' is not built: H5d's height gap fails the band rule of the callouts.toml header (zbands-mitattu-2026-09-28.md), so H5d is ct boost's whole. Named 'ct' by the lead: his 'CT:n alku Bllä'. Junction basis: holds none of the split area's positions; its region lies in the game's BombsiteB (101 of the 160 live ticks of the map inside it)"
+
+[[de_inferno.Banana.split.parts]]
+callout = "cross"
+cells = ["G5d", "H5c", "H5a", "G5b"]
+regions = [
+  { cell = "G6b", y = [0.0, 0.5], words = "G6b ja H6a yläreuna crossia ja alapuolisko yläbanaania" },
+  { cell = "H6a", y = [0.0, 0.5], words = "G6b ja H6a yläreuna crossia ja alapuolisko yläbanaania" },
+]
+broad = true
+junction = true
+junction_source = "holds none of the split area's positions; its region lies in the game's BombsiteB (219 of the 219 live ticks of the map inside it), whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'G6b,H6a juuri ja juuri ja etenkin G5d,H5c,H5a,G5b ovat crossia B:llä'; G6b and H6a by his answer of the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 1, his words: 'Sanotaan vaikka G6b ja H6a yläreuna crossia ja alapuolisko yläbanaania' -- the top half, the half the bottom half leaves (the lead's reading of his answer, not the edge rule). Broad: it yields to every earlier part it overlaps, taking what grill/pool and ct leave in G5b, H5a and H5c (A9). Junction basis: holds none of the split area's positions; its region lies in the game's BombsiteB (219 of the 219 live ticks of the map inside it)"
+
+[[de_inferno.Banana.split.parts]]
+callout = "tree"
+cells = ["I5c"]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'I5c on puu (tree)'. Junction basis: holds none of the split area's positions; its region lies in the game's Ruins (1 of the 1 live ticks of the map inside it)"
+
+[[de_inferno.Banana.split.parts]]
+callout = "auto"
+cells = ["F6d", "G6c"]
+regions = [
+  { cell = "G6d", y = [0.75, 1.0], words = "G6d alareuna" },
+  { cell = "F7b", y = [0.0, 0.25], words = "F7b yläreuna" },
+  { cell = "G7a", y = [0.0, 0.25], words = "G7a yläreuna" },
+]
+junction = true
+junction_source = "the whole Banana was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'banaani on kontaktipiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); auto is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'Auto on eniten ruudut: F6d,G6c,G6d alareuna, ehkä vielä F7b yläreuna ja G7a yläreuna'; 'alareuna' read as binding to G6d only, as he repeats the qualifier per cell in the same sentence (A32) -- a reading that moves no position: all 49 Banana positions in G6c lie in its bottom quarter (2026-09-28), so it stays stated; the edges sized by the lead's rule for edges and corners (callouts.toml header); the F7b and G7a edges are his 'ehkä vielä', kept as he gave them (puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 2: 'Samaa kulmaa voi haastaa myös autolta ruudusta G6c'). Finer than yläbanaani. Junction basis: holds positions of Banana"
+
+[[de_inferno.Banana.split.parts]]
+callout = "puolimuuri"
+cells = ["G7c"]
+junction = true
+junction_source = "the whole Banana was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'banaani on kontaktipiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); puolimuuri is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'puolimuuri on ruudun G7c'; his answer of the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 2, his words: 'Puolimuuri on tarkempi callout kuin yläbanaani': the half wall is G7c only, and its 'levittäjä' is a player position, not an extent of the callout (his words: 'sen \"levittäjä\" on pelaaja joka tulee leveäksi puolimuurin kohdalta katsoen banaania alas rampille päin'); G7a's bottom-left corner, F7b and F7d are yläbanaani's. Junction basis: holds positions of Banana"
+
+[[de_inferno.Banana.split.parts]]
+callout = "sandbags"
+cells = ["G7b", "H7a", "H7b"]
+junction = true
+junction_source = "the whole Banana was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'banaani on kontaktipiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); sandbags is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'sandbags on G7b ruudussa, sekä H7a on sen takana ja callout ulottuu sinne ja H7b ehkä juuri ja juuri myös'; H7b is his 'ehkä juuri ja juuri'. Junction basis: holds positions of Banana"
+
+[[de_inferno.Banana.split.parts]]
+callout = "yläbanaani"
+cells = ["F6d", "F7b", "G6c", "G6d", "G6b", "H6a", "H6c", "H7b", "H7a", "G7b", "G7a", "F7d", "G7c"]
+broad = true
+junction = true
+junction_source = "the whole Banana was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'banaani on kontaktipiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); yläbanaani is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'Yläbanaani: F6d,F7b,G6c,G6d;G6b,H6a,H6c,H7b,H7a,G7b,G7a,F7b' and his words: 'yläbanaani alkaa noin F7d,G7c ja on yläreunaan G6d,H6c asti'; F7b written twice, read as one (A4). His answer of the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 1 and 2: his words: 'alapuolisko yläbanaania' (G6b, H6a: what cross leaves) and his words: 'Levittävä pelaaja voi olla ruudun G7a vasemmassa alanurkassa, ruudussa F7b, F7d yläreunassa tai G7c ruudussa' -- that player stands in yläbanaani. Broad: it yields to every earlier part it overlaps, taking what auto, puolimuuri, sandbags and cross leave; finer than banaani ('banaani ⊃ yläbanaani'). Junction basis: holds positions of Banana"
+
+[[de_inferno.Banana.split.parts]]
+callout = "logit"
+cells = ["F8a", "E8b", "E8d"]
+regions = [
+  { cell = "F8c", y = [0.0, 0.5], words = "F8c mutta ei ehkä enää oikea alareuna" },
+  { cell = "F8c", x = [0.0, 0.5], y = [0.5, 1.0], words = "F8c mutta ei ehkä enää oikea alareuna" },
+]
+junction = true
+junction_source = "the whole Banana was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'banaani on kontaktipiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); logit is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'Logit:F8a,E8b,E8d,F8c mutta ei ehkä enää oikea alareuna'; F8c less its bottom-right corner, sized by the lead's rule for edges and corners (callouts.toml header), the corner left to alabanaani. Finer than alabanaani ('Alabanaani on logeilta asti rampille'). Junction basis: holds positions of Banana"
+
+[[de_inferno.Banana.split.parts]]
+callout = "broom"
+cells = ["F8d"]
+junction = true
+junction_source = "the whole Banana was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'banaani on kontaktipiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); broom is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'Broom eli posti: F8d ainoastaan'; broom, the first of his two names, as the guide's BROOM; posti is his other name for it. Junction basis: holds positions of Banana"
+
+[[de_inferno.Banana.split.parts]]
+callout = "alabanaani"
+cells = ["F8a", "F8b", "E8d", "F8c", "F8d", "F9a", "F9b", "F9d"]
+regions = [
+  { cell = "F9c", x = [0.5, 1.0], y = [0.0, 0.5], words = "F9c on vain yläoikeasta reunasta enää banaania" },
+]
+broad = true
+junction = true
+junction_source = "the whole Banana was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'banaani on kontaktipiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); alabanaani is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'Alabanaani on logeilta asti rampille, eli F8a,F8b,E8d,F8c,F8d,F9a-d' and his words: 'Kuitenkin F9c on vain yläoikeasta reunasta enää banaania ja suurimmaksi osaksi ramppia ja F9d on alabanaania kokonaan'; F9c only its top-right corner, sized by the lead's rule for edges and corners (callouts.toml header). Broad: it yields to every earlier part it overlaps, taking what logit and broom leave; finer than banaani. Junction basis: holds positions of Banana"
+
+[[de_inferno.Banana.split.parts]]
+callout = "t ramp"
+cells = ["F9c"]
+regions = [
+  { cell = "F10a", x = [0.0, 0.5], y = [0.0, 0.5], words = "F10a vasen ylänurkka ehkä juuri ja juuri ramppia" },
+]
+broad = true
+junction = true
+junction_source = "the same place as the game's TRamp (callout 't ramp'), whose junction it must share: reittimalli-inferno-2026-09-24.md section 1: 'Rampilta voi kääntyä vasemmalle banaaniin tai oikealle alamidiin'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'F9c on vain yläoikeasta reunasta enää banaania ja suurimmaksi osaksi ramppia' and his words: 'F10a vasen ylänurkka ehkä juuri ja juuri ramppia'; the corner sized by the lead's rule for edges and corners (callouts.toml header), his 'ehkä juuri ja juuri'. His 'ramppi' is the game's TRamp: Named 't ramp' by the lead, so the counts merge. Broad: it yields to every earlier part it overlaps, taking what alabanaani's corner leaves in F9c. Junction basis: the same place as the game's TRamp"
+
+[[de_inferno.Banana.split.parts]]
+callout = "alamidi"
+cells = ["F10a", "F10b", "F10c", "F10d"]
+broad = true
+junction = true
+junction_source = "the same place as the game's LowerMid (callout 'alamidi'), whose junction it must share: reittimalli-inferno-2026-09-24.md section 1: 'Alamidistä pääsee underpassin kautta secondiin tai jatkaa eteenpäin jolloin on myös haara secondiin'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'F10a-d on alamidiä'; the game's LowerMid is alamidi, so the counts merge. Broad: it yields to every earlier part it overlaps, taking what t ramp's corner leaves in F10a. Junction basis: the same place as the game's LowerMid"
+
+[[de_inferno.Banana.split.parts]]
+callout = "banaani"
+cells = ["F9a", "F9b", "F9c", "F9d", "F8a", "F8b", "F8c", "F8d", "E8b", "E8d", "F7c", "F7d", "G7c", "F7b", "G7a", "G7b", "H7a", "H7b", "F6d", "G6c", "G6d", "H6c"]
+broad = true
+junction = true
+junction_source = "his name for the whole of Banana ('Banaani kattaa tuon koko alueen'); alueomistus-pohja-2026-09-26.md de_inferno: 'banaani on kontaktipiste'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'Banaani kattaa tuon koko alueen F9a-d, F8a-d, sekä E8b,E8d, F7c,F7d,G7c,F7b,G7a,G7b,H7a,H7b,F6d,G6c,G6d,H6c'. Broad over yläbanaani and alabanaani, last of the banana names. Named banaani, as he wrote it, and not banana: banana is the coarse name of the whole game area Banana, which the loader refuses for a part of its split (the two would print alike); the part holds only what no finer name claims (F7c). Junction basis: his name for the whole of Banana ('Banaani kattaa tuon koko alueen')"
+
+[[de_inferno.Banana.split.parts]]
+callout = "short boost"
+regions = [
+  { crossing = ["I11c", "I11d", "I12a", "I12b"], size = 1.0, z = [204.84, inf], words = "se on noin yhden ruudun kokoinen, mutta I11c,I11d,I12a,I12b ruutujen risteyspisteessä" },
+]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 7, his words: 'Shortissa on myös boost alue joka erottuu z koordinaateista, se on noin yhden ruudun kokoinen, mutta I11c,I11d,I12a,I12b ruutujen risteyspisteessä'; a box one half-cell wide and high on the crossing -- his size, and the size of the postimerkki, ct box and dig precedents (A10); the name confirmed the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', first line, his words: 'Kaksi boostia ovat ct boost ja short boost'. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, the crossing box): the live ticks of the map inside the region fall in two levels, the largest gap running from 142.03 to 267.65 (41 below, 44 above); the band edge 204.84 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's Quad (43 of 44 ticks above); so is the lower (33 of 41 below), so the direction rests on his words: a boost is standing on something; the boost is the upper level. Junction basis: holds none of the split area's positions; its region lies in the game's Quad (43 of the 44 live ticks of the map inside it)"
+
+[[de_inferno.Banana.split.parts]]
+callout = "boiler"
+cells = ["H11b"]
+regions = [
+  { cell = "I11a", x = [0.0, 0.5], words = "I11a (mutta vain vasen puolisko" },
+]
+junction = true
+junction_source = "the whole Apartments was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'ct apps on myös kontaktipiste, mutta ei aina'); the whole TopofMid was a junction before the split (reittimalli-inferno-2026-09-24.md section 1: 'Ylämidissä taas reitti jakaantuu kahteen'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); boiler is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'Boiler: I11a (mutta vain vasen puolisko koska oikea puolisko on jo midin shortin puolella), H11b'; and puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 7, his words: 'Boilerin kävimme jo apsien kohdalla'. Junction basis: holds positions of Apartments, TopofMid"
+
+[[de_inferno.Banana.split.parts]]
+callout = "partsikäytävä"
+cells = ["I12d", "J12c", "J12d"]
+regions = [
+  { cell = "I12c", x = [0.75, 1.0], words = "I12c oikea reuna" },
+  { cell = "J12a", x = [0.5, 1.0], y = [0.5, 1.0], words = "J12A (mutta vain oikea alareuna)" },
+  { cell = "J12b", x = [0.0, 0.5], words = "J12b vasen puolisko on long hall" },
+]
+junction = true
+junction_source = "the whole Apartments was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'ct apps on myös kontaktipiste, mutta ei aina'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); partsikäytävä is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'Long hall: I12c oikea reuna, I12d,J12c,J12d,J12A (mutta vain oikea alareuna)'; I12c's edge and J12a's corner sized by the lead's rule for edges and corners (callouts.toml header). J12b's left half and the name by his answer of the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 4, his words: 'No long hall on apartments sisällä ja long hall on tarkempi callout. J12b vasen puolisko on long hall (kutsumme muuten sitä partsikäytäväksi, voitaisiin käyttää sitä nimeä)'. Finer than apartments. Junction basis: holds positions of Apartments"
+
+[[de_inferno.Banana.split.parts]]
+callout = "apartments-kulma"
+cells = ["H12d"]
+junction = true
+junction_source = "the whole Apartments was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'ct apps on myös kontaktipiste, mutta ei aina'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); apartments-kulma is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'apartments-kulma: H12d (kuuluu apartments, mutta tarkempi)'; finer than apartments. Junction basis: holds positions of Apartments"
+
+[[de_inferno.Banana.split.parts]]
+callout = "apartments"
+cells = ["I12c"]
+regions = [
+  { cell = "H11d", x = [0.8, 1.0], words = "H11d oikea reuna (ehkä viidesosa ruudun oikeasta reunasta)" },
+  { cell = "I11c", x = [0.0, 0.5], words = "I11c vasen puoli" },
+  { cell = "H12b", x = [0.8, 1.0], words = "H12B oikea reuna kuten H11d" },
+  { cell = "I12a", x = [0.0, 0.5], words = "I12a vasen puoli" },
+]
+broad = true
+junction = true
+junction_source = "the whole Apartments was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'ct apps on myös kontaktipiste, mutta ei aina'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); apartments is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'apartments: H11d oikea reuna (ehkä viidesosa ruudun oikeasta reunasta), I11c vasen puoli,H12B oikea reuna kuten H11d,I12a vasen puoli,I12c (oikea reuna jo long hall)'; broad: it yields to every earlier part it overlaps, taking what partsikäytävä leaves in I12c (puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 4: 'long hall on apartments sisällä'). Junction basis: holds positions of Apartments"
+
+[[de_inferno.Banana.split.parts]]
+callout = "window"
+cells = ["H11d", "H12b"]
+broad = true
+junction = true
+junction_source = "the whole Apartments was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'ct apps on myös kontaktipiste, mutta ei aina'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); window is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'Window: H11d,H12b (mutta H12b oikea reuna menee jo apartments puolelle seinän yli'; broad: it yields to every earlier part it overlaps, taking what apartments' right fifths leave in H11d and H12b -- his 'mutta … menee jo apartments puolelle'. Junction basis: holds positions of Apartments"
+
+[[de_inferno.Banana.split.parts]]
+callout = "balcony"
+regions = [
+  { cell = "J12b", x = [0.5, 1.0], words = "J12b oikea puoli noin puolesta välistä" },
+  { cell = "K12a", x = [0.0, 0.25], words = "K12a vasen reuna (noin neljäsosa ruudusta)" },
+  { cell = "K12c", x = [0.0, 0.5], y = [0.0, 0.5], words = "K12c vasen yläkulma" },
+]
+junction = true
+junction_source = "the same place as the game's Balcony (callout 'balcony'), whose junction it must share: alueomistus-pohja-2026-09-26.md de_inferno: 'balcony ja boiler ovat yleensä aina kontaktipisteitä'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'Balcony: J12b oikea puoli noin puolesta välistä,K12a vasen reuna (noin neljäsosa ruudusta), K12c vasen yläkulma'; K12c's corner sized by the lead's rule for edges and corners (callouts.toml header). The game's Balcony is balcony, so the counts merge. No height band: he says 'balcony on pikku pit:n päällä joten ne erottaa vain z koordinaatista', but the archive shows one level there, not two (zbands-mitattu-2026-09-28.md, balcony: of the 77 live ticks of the map in these regions 75 lie at z 227.6 to 312.8, and the two below are single ticks at 125.1 and 191.8, not a second level, so it fails the band rule of the callouts.toml header; beside them, the 52 Apartments positions in J12b's left half lie at 260.0 to 261.0, the same level), so no band is built and nothing is named pit (A15). Junction basis: the same place as the game's Balcony"
+
+[[de_inferno.Banana.split.parts]]
+callout = "dark stairs"
+cells = ["H13b", "I13a"]
+junction = true
+junction_source = "the whole Apartments was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'ct apps on myös kontaktipiste, mutta ei aina'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); dark stairs is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'Dark stairs: H13b,I13a'. Junction basis: holds positions of Apartments"
+
+[[de_inferno.Banana.split.parts]]
+callout = "t apartments"
+cells = ["E12c", "E12d", "E13a", "E13b", "F12c", "F13a"]
+junction = true
+junction_source = "the whole Apartments was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'ct apps on myös kontaktipiste, mutta ei aina'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); t apartments is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'E12c,E12d,E13a,E13b,F12c,F13a on T apartments'. Junction basis: holds positions of Apartments"
+
+[[de_inferno.Banana.split.parts]]
+callout = "t-aps ovi"
+cells = ["F12d", "F13b"]
+junction = true
+junction_source = "the whole Apartments was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'ct apps on myös kontaktipiste, mutta ei aina'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); t-aps ovi is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'F12d,F13b T-aps ovi'. Junction basis: holds positions of Apartments"
+
+[[de_inferno.Banana.split.parts]]
+callout = "back alley"
+cells = ["G13a", "G13c", "G13b", "G13d", "H13a", "H13c"]
+junction = true
+junction_source = "the same place as the game's BackAlley (callout 'back alley'), whose junction it must share: reittimalli-inferno-2026-09-24.md section 1: 'back alleylle, josta pääsee CT appseihin portaille tai takaisin second midiin'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'G13a,G13c,G13b;G13d;H13a;H13c BackAlley'; the game's BackAlley: Named 'back alley' by the lead, his BackAlley written as the existing callout, so the counts merge. Junction basis: the same place as the game's BackAlley"
+
+[[de_inferno.Banana.split.parts]]
+callout = "bridge"
+regions = [
+  { cell = "E11c", y = [0.5, 1.0], z = [118.68, inf], words = "E11c(alempi puolisko ruudusta)" },
+  { cell = "E12a", z = [118.68, inf], words = "E12a kohdissa secondin päällä" },
+]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'Tämän lisäksi secondin kanssa päällekäin on bridge, joka menee E11c(alempi puolisko ruudusta),E12a kohdissa secondin päällä'. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, bridge): the live ticks of the map inside the region fall in two levels, the largest gap running from 45.33 to 192.03 (10 below, 21 above); the band edge 118.68 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's Bridge (21 of 21 ticks above), the lower the game's SecondMid (10 of 10 below); the bridge is the upper level. Not merged with the game's Bridge, whose callout is t talo (lead, A12). Junction basis: holds none of the split area's positions; its region lies in the game's Bridge (21 of the 21 live ticks of the map inside it)"
+
+[[de_inferno.Banana.split.parts]]
+callout = "underpass"
+cells = ["F11b", "F11d"]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'Myös F11b ja F11d ruuduissa menee underpass secondisa midiin, mutta se on hieman alempana kuin muu maa secondissa ja midissä'. No height band: the live ticks of F11b and F11d show a gap from 21.62 to 65.53, but only 4 lie below it, so it fails the band rule of the callouts.toml header (zbands-mitattu-2026-09-28.md); F11b and F11d are underpass's whole. The game's Underpass is underpass, so the counts merge. His slope ('koko mid ja second mid on loivaa ylämäkeä kohti ct appseja ja ylämidiä') is why every band is measured in its own place (A18). Junction basis: the same place as the game's Underpass"
+
+[[de_inferno.Banana.split.parts]]
+callout = "kitchen"
+cells = ["E11a", "E11b", "E11d", "F11a"]
+regions = [
+  { cell = "E11c", y = [0.0, 0.5], words = "E11c ylempi puolisko ruudusta" },
+]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'E11a-d (E11c ylempi puolisko ruudusta) ja F11a on kitchen'. Junction basis: holds none of the split area's positions; its region lies in the game's Upstairs (7 of the 8 live ticks of the map inside it)"
+
+[[de_inferno.Banana.split.parts]]
+callout = "t balcony"
+cells = ["F11c", "F11d"]
+broad = true
+junction = true
+junction_source = "holds none of the split area's positions; its region lies in the game's SecondMid (1 of the 1 live ticks of the map inside it), whose entry is a junction: alueomistus-pohja-2026-09-26.md de_inferno: 'second mid on myös kontaktipiste'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'F11c ja F11d on T balcony'; broad: it yields to every earlier part it overlaps, so F11d, which underpass names whole before it, is underpass's -- his 'hieman alempana kuin muu maa' would part them by height, but that gap fails the band rule of the callouts.toml header (zbands-mitattu-2026-09-28.md); no third level above the ground shows either, so it has no band. Junction basis: holds none of the split area's positions; its region lies in the game's SecondMid (1 of the 1 live ticks of the map inside it)"
+
+[[de_inferno.Banana.split.parts]]
+callout = "secondin kulma"
+cells = ["G11b", "H11a"]
+regions = [
+  { cell = "G10d", y = [0.6666666666666666, 1.0], words = "G10d ja H10c alareuta myös, alin kolmasosa" },
+  { cell = "H10c", y = [0.6666666666666666, 1.0], words = "G10d ja H10c alareuta myös, alin kolmasosa" },
+]
+junction = true
+junction_source = "holds none of the split area's positions; its region lies in the game's SecondMid (101 of the 107 live ticks of the map inside it), whose entry is a junction: alueomistus-pohja-2026-09-26.md de_inferno: 'second mid on myös kontaktipiste'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'G11b ja H11a ovat secondin kulma, ehkä myös G10d ja H10c alareuta myös, alin kolmasosa'; G10d and H10c are his 'ehkä'. Junction basis: holds none of the split area's positions; its region lies in the game's SecondMid (101 of the 107 live ticks of the map inside it)"
+
+[[de_inferno.Banana.split.parts]]
+callout = "second mid"
+cells = ["D11d", "E11c", "E11d", "F11c", "F11d", "G11c", "G11d", "D12b", "E12a", "E12b", "F12a", "F12b", "G12a", "G12b", "H11c", "H12a"]
+broad = true
+junction = true
+junction_source = "the same place as the game's SecondMid (callout 'second mid'), whose junction it must share: alueomistus-pohja-2026-09-26.md de_inferno: 'second mid on myös kontaktipiste'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'Second mid menee: D11d ja D12b rivit G11dja G12b asti, jossa H11c ja H12a ovat hyppypaikalla windowiin'; read 'D11d ja D12b rivit G11dja G12b asti' as D11d, E11c, E11d, F11c, F11d, G11c, G11d, D12b, E12a, E12b, F12a, F12b, G12a, G12b (the two rows he names, A16); H11c and H12a, the jump spot to window, are second mid (A17). The game's SecondMid is second mid, so the counts merge. Broad: it yields to every earlier part it overlaps, taking what kitchen, bridge, underpass and t balcony leave in its rows. Junction basis: the same place as the game's SecondMid"
+
+[[de_inferno.Banana.split.parts]]
+callout = "cubby"
+cells = ["I8c"]
+regions = [
+  { cell = "I9a", y = [0.0, 0.2], words = "I9a ylin viidesosa" },
+]
+junction = true
+junction_source = "the whole TopofMid was a junction before the split (reittimalli-inferno-2026-09-24.md section 1: 'Ylämidissä taas reitti jakaantuu kahteen'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); cubby is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 7, his words: 'Sanoisin, että I8c On kokonaan cubbyä' and his words: 'Tämän lisäksi myös I9a ylin viidesosa on cubbyä'; his 'Cubby osuu ruutujen risteykseen' describes the place and names no crossing, so none is built (A19). Junction basis: holds positions of TopofMid"
+
+[[de_inferno.Banana.split.parts]]
+callout = "long"
+cells = ["I9b", "I8d", "J9a"]
+regions = [
+  { cell = "I9a", x = [0.6666666666666666, 1.0], words = "I9a oikea reuna miinus cubby osuus eli oikean reunan kolmannes" },
+  { cell = "J8c", y = [0.8333333333333334, 1.0], words = "J8c one melkein kokonaan jo arch, mutta alareunan ruudun alin kuudennes on longia" },
+]
+broad = true
+junction = true
+junction_source = "the whole TopofMid was a junction before the split (reittimalli-inferno-2026-09-24.md section 1: 'Ylämidissä taas reitti jakaantuu kahteen'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); long is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 7, his words: 'Long eli arch side alkaa I9a oikea reuna miinus cubby osuus eli oikean reunan kolmannes, I9b on kokonaan longia, I8d on kokonaan longia' and his words: 'J9a kokonaan longia ja J8c one melkein kokonaan jo arch, mutta alareunan ruudun alin kuudennes on longia'. His continuation 'Long jatkuu libraryyn asti noin ruudukon H9a rivinä' gives no end, so only the cells he names are built (A20). Broad: it yields to every earlier part it overlaps, taking what cubby's top fifth leaves in I9a's right third ('miinus cubby osuus'). Junction basis: holds positions of TopofMid"
+
+[[de_inferno.Banana.split.parts]]
+callout = "close/brackets"
+cells = ["I9c", "I9d", "I10a", "I10b"]
+junction = true
+junction_source = "the whole TopofMid was a junction before the split (reittimalli-inferno-2026-09-24.md section 1: 'Ylämidissä taas reitti jakaantuu kahteen'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); close/brackets is a place he names that holds its positions"
+confidence = "inferred"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 7, his words: 'Longi lähellä on I9c,I0d,I10a ja I10b. tämä on todennäköisesti tuo close/brackets'; read 'I0d' as I9d by his answer of the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 3, his words: 'Pitäisi olla I9d kyllä'. Confidence inferred: the name is his, hedged 'todennäköisesti' (A21). Junction basis: holds positions of TopofMid"
+
+[[de_inferno.Banana.split.parts]]
+callout = "porch"
+cells = ["I11b", "I11d", "I12b", "J11c", "J11d"]
+regions = [
+  { cell = "I10c", y = [0.75, 1.0], words = "I10c ja I10d ruudun alareunat" },
+  { cell = "I10d", y = [0.75, 1.0], words = "I10c ja I10d ruudun alareunat" },
+  { cell = "I11a", x = [0.5, 1.0], words = "I11a ja I11c oikeat puoliskot" },
+  { cell = "I11c", x = [0.5, 1.0], words = "I11a ja I11c oikeat puoliskot" },
+  { cell = "I12a", x = [0.5, 1.0], y = [0.0, 0.5], words = "I12a aivan oikea ylänurkka" },
+  { cell = "J12a", y = [0.0, 0.3333333333333333], words = "J12a yläreunan kolmannes" },
+]
+broad = true
+junction = true
+junction_source = "the whole TopofMid was a junction before the split (reittimalli-inferno-2026-09-24.md section 1: 'Ylämidissä taas reitti jakaantuu kahteen'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); porch is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 7, his words: 'Porch eli short on I10c ja I10d ruudun alareunat,I11a ja I11c oikeat puoliskot, jotka eivät ole talon sisällä, sekä I12a aivan oikea ylänurkka, sekä I11b,I11d ja I12b,sekä J12a yläreunan kolmannes, ja J11c,J11d'; the edges and I12a's corner sized by the lead's rule for edges and corners (callouts.toml header). Named porch, the first of his two names, as the guide's PORCH. Broad: it yields to every earlier part it overlaps, taking what short boost leaves ('Shortissa on myös boost alue'). Junction basis: holds positions of TopofMid"
 
 [de_inferno.BombsiteA]
 callout = "a site"
@@ -912,7 +1505,22 @@ junction_source = "reittimalli-inferno-2026-09-24.md section 1: 'Ylämidissä ta
 neighbours = 6
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_inferno table: TopofMid = ylämidi; short and long are the two halves of upper mid (reittimalli-inferno-2026-09-24.md section 1)"
-note = "One game area holding several of his callouts (short, long, the boiler side): the coarse name, flagged."
+note = "One game area holding several of his callouts (short, long, the boiler side): the coarse name, flagged. Since Story 4.20 its positions are counted under his places by the split below, which reads the one Inferno table written on [de_inferno.Banana.split]."
+
+[de_inferno.TopofMid.split]
+image = "kartta06_sivu6_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [99.78908959436282, 99.28889365654648]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+parts_from = "Banana"
+source = "the grid of the pictures in puoliruudut-2026-09-27/, made by grid2.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), columns from A and rows from 1, half-cells a top-left, b top-right, c bottom-left, d bottom-right (puoliruudut-vastaus-2-2026-09-28.md: 'The grids are those of the pictures in puoliruudut-2026-09-27/, drawn by grid2.py'); the columns and rows are the fewest whole cells that cover the image. The fit is the unrounded one grid2.py drew the pictures with (koordinaatit-mitattu-2026-09-27.md gives it rounded to sx 0.2348, sy 0.2336, bx 514.2, by 1079.1; the picture script's fit_inf2.npy), moved here from the picture script only in Story 4.20; it was made on every position with no floor cut, so there is no zmin and every position is split. His answer of 2026-09-28 morning (puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 7) names the places below the half-cell -- fractions, crossings, height bands and nested names -- read into the parts as tabled in puoliruudut-taulukot-2026-09-28.md, with the readings he answered the same morning (section 'His answers to the four open readings, same morning'). A half-cell no part names whole takes the nearest named one's callout (spec 4.20 decision 4). Every split of de_inferno is on this one grid, and the loader refuses them if they disagree. The parts are [de_inferno.Banana.split]'s, one table for the three Inferno splits (parts_from; A13: 'Boilerin kävimme jo apsien kohdalla'); this split renames only TopofMid's positions."
+
+[de_inferno.TopofMid.split.fit]
+sx = 0.234797857869089
+sy = 0.23362092625069758
+bx = 514.2199095575344
+by = 1079.122363375169
 
 [de_inferno.Underpass]
 callout = "underpass"
@@ -997,8 +1605,8 @@ callout = "a main"
 cells = ["C7a", "C7b", "D7a", "D7b"]
 junction = true
 junction_source = "his words: 'kohtauspisteitä on ... a main sekä back site' (alueomistus-pohja-2026-09-26.md de_ancient); the whole MainHall was a junction before the split (alueomistus-pohja-2026-09-26.md de_ancient: 'kohtauspisteitä on ... a main sekä back site'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review)"
-confidence = "inferred"
-source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `MainHall` (not coarse today; becomes coarse and split)', row 'a main | C7a, C7b, D7a, D7b'. Read as an assumption (same section): his words are 'Ancient C7a, C7b, C7a, d7b = A main', which repeat C7a; the second C7a is read as D7a, the fourth half-cell of the A MAIN label -- to confirm with him. Confidence inferred until he confirms the reading: it rests on our reading, not on his confirmed words, so it prints marked; his confirmation makes it stated"
+confidence = "stated"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `MainHall` (not coarse today; becomes coarse and split)', row 'a main | C7a, C7b, D7a, D7b'. His words there are 'Ancient C7a, C7b, C7a, d7b = A main', which repeat C7a; the second C7a was read as D7a, the fourth half-cell of the A MAIN label, and he confirmed the reading on 2026-09-28: puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 1, his words: 'D7a kyllä a mainissa' -- so stated since Story 4.20"
 
 [[de_ancient.MainHall.split.parts]]
 callout = "hall"
@@ -1068,8 +1676,8 @@ source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `Outside`', row 'T-
 callout = "Outside main"
 cells = ["C9b", "C9d", "D9a", "D9b", "D9c", "D9d"]
 junction = false
-confidence = "inferred"
-source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `Outside`', row 'Outside main (towards A main) | C9b, C9d, **D9a, D9b, D9c, D9d**'. Read as an assumption (same section): his words are 'Outside main (torwards a main = C9b,C9d,F9a-d', but F9a-d is T-elbow's in the line above, so it is read as D9a-d, the strip towards A main between C9 and the cube -- to confirm with him. Confidence inferred until he confirms the reading: it rests on our reading, not on his confirmed words, so it prints marked; his confirmation makes it stated. Transit although the whole Outside was a junction: he describes it as a way to somewhere ('towards a main'), not a place (spec 4.18 review)"
+confidence = "stated"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `Outside`', row 'Outside main (towards A main) | C9b, C9d, **D9a, D9b, D9c, D9d**'. His words there are 'Outside main (torwards a main = C9b,C9d,F9a-d', but F9a-d is T-elbow's in the line above, so it was read as D9a-d, the strip towards A main between C9 and the cube, and he confirmed the reading on 2026-09-28: puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 1, his words: 'Kyllä outside main on D9a-d ja C9b,C9d' -- so stated since Story 4.20. Transit although the whole Outside was a junction: he describes it as a way to somewhere ('towards a main'), not a place (spec 4.18 review)"
 
 [de_ancient.Ramp]
 callout = "ramp"
@@ -1253,14 +1861,115 @@ confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_anubis: CT by any reading; calloutit.md guide: CT SPAWN"
 
 [de_anubis.Canal]
-callout = "canal"
+callout = "canal/boat"
 coarse = true
 junction = true
 junction_source = "alueomistus-pohja-2026-09-26.md de_anubis: 'Boat, canal, connector ... on kuitenkin välillä kontaktialuetta'"
 neighbours = 8
 confidence = "guide"
-source = "calloutit.md guide: CANAL -- the game area's own name is a guide callout"
-note = "One game area holding several of his callouts (canal, boat, water): the coarse name, flagged. That boat and water lie inside it is presumed by the source, not measured."
+source = "calloutit.md guide: CANAL -- the game area's own name is a guide callout; and BOAT, which its positions also cover (puoliruudut-2026-09-27/anubis-Canal.png: 235 of its 573 positions lie in the half-cells he names boat, puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 8)"
+note = "One game area holding several of his callouts: the coarse name, flagged. Until Story 4.20 the coarse name was canal; his canal is now one part of the split below, and the loader refuses a part named like its area's coarse name (the two would print alike), so the coarse name is the guide labels its positions cover, lower-cased and joined with '/' -- the convention of tests/data/guide_fit.json ('the labels its ticks must meet (their names, lower-cased and joined with '/', are the area's callout in callouts.toml)'). It stays for a rule row on the whole area and a position the split cannot place. Water, in the old note, is not in his answer of 2026-09-28."
+
+[de_anubis.Canal.split]
+image = "kartta15_sivu20_1480x1546.png"
+origin = [0.0, 0.0]
+cell = [127.30978727340698, 129.44617196917534]
+columns = "ABCDEFGHIJKL"
+rows = 12
+source = "the grid of the pictures in puoliruudut-2026-09-27/, made by grid2.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), columns from A and rows from 1, half-cells a top-left, b top-right, c bottom-left, d bottom-right (puoliruudut-vastaus-2-2026-09-28.md: 'The grids are those of the pictures in puoliruudut-2026-09-27/, drawn by grid2.py'); the columns and rows are the fewest whole cells that cover the image. The fit is the unrounded one grid2.py drew the pictures with (koordinaatit-mitattu-2026-09-27.md gives it rounded to sx 0.2996, sy 0.3046, bx 699.0, by 984.8), moved here from tests/data/guide_fit.json in Story 4.20; it was made on every position with no floor cut, so there is no zmin and every position is split. His answer of 2026-09-28 morning (puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 8) names the places below the half-cell -- fractions, crossings, height bands and nested names -- read into the parts as tabled in puoliruudut-taulukot-2026-09-28.md, with the readings he answered the same morning (section 'His answers to the four open readings, same morning'). A half-cell no part names whole takes the nearest named one's callout (spec 4.20 decision 4). Every split of de_anubis is on this one grid, and the loader refuses them if they disagree."
+
+[de_anubis.Canal.split.fit]
+sx = 0.29955244064331055
+sy = 0.3045792281627655
+bx = 698.9820556640625
+by = 984.8477783203125
+
+[[de_anubis.Canal.split.parts]]
+callout = "mid doors window"
+regions = [
+  { cell = "F7d", z = [-64.12, inf], words = "F7d ja G7c menevät mid ovien lähelle, jossa on korkeampi z koordinaatti" },
+  { cell = "G7c", z = [-64.12, inf], words = "F7d ja G7c menevät mid ovien lähelle, jossa on korkeampi z koordinaatti" },
+]
+junction = true
+junction_source = "holds none of the split area's positions; its region lies in the game's MidDoors (33 of the 40 live ticks of the map inside it), whose entry is a junction: alueomistus-pohja-2026-09-26.md de_anubis: 'ct pelaaja voi peekata mid talosta tai tuplaovien puolelta sillalle'"
+confidence = "inferred"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 8, his words: 'Myös F7d ja G7c menevät mid ovien lähelle, jossa on korkeampi z koordinaatti. F7d ja G7c ovat myös ruudut joissa ikkuna mid ovilta canaalin on'; Named 'mid doors window' by the lead, for his 'ikkuna mid ovilta canaalin' -- a new callout, not merged with middle doors (A22); confidence inferred, because the name is the lead's and not his. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, F7d and G7c): the live ticks of the map inside the region fall in two levels, the largest gap running from -96.44 to -31.80 (44 below, 40 above); the band edge -64.12 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's MidDoors (33 of 40 ticks above), the lower the game's Canal (44 of 44 below); the window is the upper level. Junction basis: holds none of the split area's positions; its region lies in the game's MidDoors (33 of the 40 live ticks of the map inside it)"
+
+[[de_anubis.Canal.split.parts]]
+callout = "bridge"
+regions = [
+  { cell = "F7a", z = [-70.67, inf], words = "Silta midissä menee myös F7a,F7c,F8a,F8c ruuduissa, mutta korkeammalla z koordinaatilla" },
+  { cell = "F7c", z = [-70.67, inf], words = "Silta midissä menee myös F7a,F7c,F8a,F8c ruuduissa, mutta korkeammalla z koordinaatilla" },
+  { cell = "F8a", z = [-70.67, inf], words = "Silta midissä menee myös F7a,F7c,F8a,F8c ruuduissa, mutta korkeammalla z koordinaatilla" },
+  { cell = "F8c", z = [-70.67, inf], words = "Silta midissä menee myös F7a,F7c,F8a,F8c ruuduissa, mutta korkeammalla z koordinaatilla" },
+]
+junction = true
+junction_source = "the same place as the game's Bridge (callout 'bridge'), whose junction it must share: alueomistus-pohja-2026-09-26.md de_anubis: 'silta on kontaktipiste'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 8, his words: 'Silta midissä menee myös F7a,F7c,F8a,F8c ruuduissa, mutta korkeammalla z koordinaatilla'; his silta is the game's Bridge: Named 'bridge' by the lead, so the counts merge. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, F7a, F7c, F8a and F8c): the live ticks of the map inside the region fall in two levels, the largest gap running from -141.31 to -0.03 (36 below, 190 above); the band edge -70.67 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's Bridge (186 of 190 ticks above), the lower the game's Canal (36 of 36 below); the bridge is the upper level. Junction basis: the same place as the game's Bridge"
+
+[[de_anubis.Canal.split.parts]]
+callout = "veneen kulma"
+cells = ["I8a"]
+regions = [
+  { cell = "I7c", y = [0.75, 1.0], words = "I7c alareuna" },
+]
+junction = true
+junction_source = "the whole Canal was a junction before the split (alueomistus-pohja-2026-09-26.md de_anubis: 'Boat, canal, connector ... on kuitenkin välillä kontaktialuetta'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); veneen kulma is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 8, his words: 'I7c alareuna ja I8a ovat veneen kulma'; I7c's edge sized by the lead's rule for edges and corners (callouts.toml header). Finer than boat (A23). Confidence stated: the name and its cells are his own words, and nesting it as the finer name inside boat is not a reading of which half-cells he wrote, so the 4.20 confidence rule does not make it inferred. Junction basis: holds positions of Canal"
+
+[[de_anubis.Canal.split.parts]]
+callout = "boat"
+cells = ["H6a", "H6b", "H6c", "H6d", "I6a", "I6b", "I6c", "H7a", "H7b", "H7c", "H7d", "I7a", "I7c", "H8b"]
+broad = true
+junction = true
+junction_source = "the whole Canal was a junction before the split (alueomistus-pohja-2026-09-26.md de_anubis: 'Boat, canal, connector ... on kuitenkin välillä kontaktialuetta'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); boat is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 8, his words: 'Boat: H6a-d,I6a,I6a,I6c,H7a-d,I7a,I7c,H8b'; read 'I6a,I6a,I6c' as I6a, I6b, I6c (A6) -- a reading that moves no position: read as I6d instead, I6b's one position and I6d's fifteen would still take boat by the nearest, so it stays stated. Broad: it yields to every earlier part it overlaps, taking what veneen kulma leaves in I7c. Junction basis: holds positions of Canal"
+
+[[de_anubis.Canal.split.parts]]
+callout = "stairs"
+cells = ["H8a", "H8c", "H9a", "H9b"]
+junction = true
+junction_source = "the same place as the game's TStairs (callout 'stairs'), whose junction it must share: alueomistus-pohja-2026-09-26.md de_anubis: 'stairsilta voi olla kontaktia connectoriin'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 8, his words: 'H8a,H8c,H9a,H9b on T portaat'; his T portaat is the game's TStairs: Named 'stairs' by the lead, so the counts merge. Junction basis: the same place as the game's TStairs"
+
+[[de_anubis.Canal.split.parts]]
+callout = "connector"
+cells = ["D7d", "D8b"]
+regions = [
+  { cell = "E7c", x = [0.0, 0.16666666666666666], words = "E7c vasemman reunan kuudennes" },
+  { cell = "E8a", x = [0.0, 0.5], words = "E8a vasen puolisko" },
+]
+junction = true
+junction_source = "the same place as the game's Connector (callout 'connector'), whose junction it must share: alueomistus-pohja-2026-09-26.md de_anubis: 'Boat, canal, connector ... on kuitenkin välillä kontaktialuetta'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 8, his words: 'Connector osuu ruutuihin D7d,E7c vasemman reunan kuudennes,D8b ja E8a vasen puolisko', confirmed by his answer to the review tie, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the two review ties, afternoon 2026-09-28', answer 1, his words: 'E8a:n oikea reuna on canalia ja vasen connectoria'; the game's Connector is connector, so the counts merge. Junction basis: the same place as the game's Connector"
+
+[[de_anubis.Canal.split.parts]]
+callout = "canal"
+cells = ["G8b", "G8a", "F8b", "F8a", "E8b"]
+regions = [
+  { cell = "G8d", y = [0.0, 0.25], words = "aivan yläreuna G8d:stä E8d:hen" },
+  { cell = "G8c", y = [0.0, 0.25], words = "aivan yläreuna G8d:stä E8d:hen" },
+  { cell = "F8d", y = [0.0, 0.25], words = "aivan yläreuna G8d:stä E8d:hen" },
+  { cell = "F8c", y = [0.0, 0.25], words = "aivan yläreuna G8d:stä E8d:hen" },
+  { cell = "E8d", y = [0.0, 0.25], words = "aivan yläreuna G8d:stä E8d:hen" },
+  { cell = "G7d", y = [0.75, 1.0], words = "alin reuna G7d:stä E7c:hen" },
+  { cell = "G7c", y = [0.75, 1.0], words = "alin reuna G7d:stä E7c:hen" },
+  { cell = "F7d", y = [0.75, 1.0], words = "alin reuna G7d:stä E7c:hen" },
+  { cell = "F7c", y = [0.75, 1.0], words = "alin reuna G7d:stä E7c:hen" },
+  { cell = "E7d", y = [0.75, 1.0], words = "alin reuna G7d:stä E7c:hen" },
+  { cell = "E7c", x = [0.5, 1.0], y = [0.5, 1.0], words = "E7c:n alaoikea nurkka vain on canal aluetta" },
+  { cell = "E8a", x = [0.5, 1.0], words = "E8a:n oikea reuna on canalia ja vasen connectoria" },
+]
+broad = true
+junction = true
+junction_source = "the whole Canal was a junction before the split (alueomistus-pohja-2026-09-26.md de_anubis: 'Boat, canal, connector ... on kuitenkin välillä kontaktialuetta'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); canal is a place he names that holds its positions"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 8, his words: 'Canal: Isoin osa on rivi G8b:stä E8b:hen. Tämän lisäksi muutaman ruudun aivan yläreuna G8d:stä E8d:hen, sekä Muutaman ruudun alin reuna G7d:stä E7c:hen, missä E7c:n alaoikea nurkka vain on canal aluetta ja vasen kuudennes ruudusta on jo connectorin puolella'; read 'G8b:stä E8b:hen' as G8b, G8a, F8b, F8a, E8b; read 'G8d:stä E8d:hen' as G8d, G8c, F8d, F8c, E8d; read 'G7d:stä E7c:hen' as G7d, G7c, F7d, F7c, E7d, E7c (the rows he spans); the edges and E7c's corner sized by the lead's rule for edges and corners (callouts.toml header). E8a's right half by his answer to the review tie, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the two review ties, afternoon 2026-09-28', answer 1, his words: 'E8a:n oikea reuna on canalia ja vasen connectoria' -- the half connector's left half leaves (the lead's reading, not the edge rule). Broad: it yields to every earlier part it overlaps -- the higher bridge and mid doors window in its cells; F7d's and G7c's upper parts at the lower level are left to the nearest (A25). Junction basis: holds positions of Canal"
 
 [de_anubis.Connector]
 callout = "connector"

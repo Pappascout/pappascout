@@ -88,9 +88,12 @@ stage but not the parsing. The product owner's callout table
 only its fields that change the report (:data:`HASHED_CALLOUT_FIELDS`:
 callout, junction, coarse, confidence and split -- of a split, the geometry
 in :data:`HASHED_SPLIT_FIELDS` and each part's :data:`HASHED_PART_FIELDS`,
-Story 4.17): editing one of them -- or adding or removing an entry -- re-runs
-the stage; editing a source, a note, a neighbour count, a split's image, a
-comment or the order of entries does not.
+Story 4.17, with a region's :data:`HASHED_REGION_FIELDS` and a part's
+``broad``, Story 4.20): editing one of them -- or adding or removing an entry
+-- re-runs the stage, and so does **reordering a split's parts**, because the
+first part in table order takes a spot two parts claim; editing a source, a
+note, a neighbour count, a split's image, a region's words, a comment or the
+order of the areas does not.
 """
 
 from __future__ import annotations
@@ -1812,8 +1815,11 @@ HASHED_CALLOUT_FIELDS: tuple[str, ...] = (
     "split",
 )
 #: Of a split area (Story 4.17), what changes the report: the geometry that
-#: places a position, and each part's name, half-cells, boxes, junction and
-#: confidence. The ``image`` and every ``source`` are provenance.
+#: places a position, and each part's name, half-cells, boxes, regions and
+#: broad (Story 4.20), junction and confidence -- **in the parts' order**,
+#: which the hashed list keeps, because table order decides a spot two
+#: parts claim. The ``image``, every ``source`` and a region's ``words`` are
+#: provenance.
 HASHED_SPLIT_FIELDS: tuple[str, ...] = (
     "fit",
     "zmin",
@@ -1826,15 +1832,27 @@ HASHED_PART_FIELDS: tuple[str, ...] = (
     "callout",
     "cells",
     "boxes",
+    "regions",
+    "broad",
     "junction",
     "confidence",
 )
-#: The three lists as the ``include`` of one entry's dump.
+#: Of a part's region (Story 4.20), the geometry and the height band. Its
+#: ``words`` are provenance: his phrase the region is read from.
+HASHED_REGION_FIELDS: tuple[str, ...] = ("cell", "crossing", "x", "y", "size", "z")
+#: The four lists as the ``include`` of one entry's dump.
 _HASHED_ENTRY: dict[str, Any] = {
     **{key: True for key in HASHED_CALLOUT_FIELDS},
     "split": {
         **{key: True for key in HASHED_SPLIT_FIELDS},
-        "parts": {"__all__": {key: True for key in HASHED_PART_FIELDS}},
+        "parts": {
+            "__all__": {
+                **{key: True for key in HASHED_PART_FIELDS},
+                "regions": {
+                    "__all__": {key: True for key in HASHED_REGION_FIELDS}
+                },
+            }
+        },
     },
 }
 

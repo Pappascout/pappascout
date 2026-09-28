@@ -3540,7 +3540,11 @@ def test_one_match_gives_the_same_date_and_opponent_on_every_map() -> None:
 #: mark. Here that moved marks on five callouts -- short a, window,
 #: ruins/dig, top mid and backsite -- and no name: the other measured
 #: callouts appear in no pinned pistol route, and de_ancient's Ruins,
-#: renamed b doors, is transit and never appears in one.
+#: renamed b doors, is transit and never appears in one. Re-pinned by
+#: running again on 2026-09-28 (Story 4.20): the coarse names of Inferno's
+#: Banana, TopofMid and Apartments, Anubis' Canal and Dust2's UnderA gave way
+#: to his places finer than a half-cell, and a main lost its inferred mark
+#: when he confirmed D7a.
 #: Story 4.11's four-point table is not kept here: no test read it and no
 #: code can regenerate it, which is the hand-kept second copy the house
 #: rules refuse; the comparison belongs in the story's documents.
