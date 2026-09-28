@@ -853,7 +853,8 @@ def _header_text() -> str:
 
 
 def _edge_of_the_header() -> float:
-    """The lead's size for an edge he did not quantify (A1), read from the
+    """The size for an edge he did not quantify (A1, the lead's proposal he
+    confirmed on 2026-09-28: "Sopii"), read from the
     one place it is written -- the header of ``callouts.toml`` -- so the
     test and the table cannot hold two values."""
     header = _header_text()
@@ -866,10 +867,13 @@ def _edge_of_the_header() -> float:
     return int(rule[1]) / int(rule[2])
 
 
-#: The lead's sizes where he gave none (A1, A2; callouts.toml header).
+#: The sizes where he gave none (A1, A2), his since 2026-09-28 (section
+#: 'His answers after Story 4.20': "Sopii"; callouts.toml header).
 EDGE = _edge_of_the_header()
 _WHOLE = (0.0, 1.0)
-#: His fraction words -> (x, y) of the half-cell, y from the top; the first
+#: His fraction words -> (x, y) of the half-cell, y from the top -- a hand
+#: copy of each size beside callouts.toml's, the accepted two-copies limit
+#: stated in :func:`_check_his_words`; the first
 #: listed term found in a region's words decides, so a longer term is
 #: listed before a shorter one inside it. Each term is his own, from
 #: puoliruudut-vastaus-2-2026-09-28.md; where he gave no size, EDGE or a
@@ -883,7 +887,10 @@ _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
     # connectoria" -- the right is the half the left half leaves (the
     # lead's reading, not the edge rule).
     ("oikea reuna on canalia ja vasen", ((0.5, 1.0), _WHOLE)),
-    ("yläpuolisko", (_WHOLE, (0.0, 0.5))),
+    # His answer after Story 4.20: "vajaa puolet yläreunasta" (a little under
+    # half from the top edge) is a fraction he did not quantify, read as the
+    # half; the height band does the real separation.
+    ("vajaa puolet yläreunasta", (_WHOLE, (0.0, 0.5))),
     ("viidesosa ruudun oikeasta reunasta", ((0.8, 1.0), _WHOLE)),
     ("oikea reuna kuten h11d", ((0.8, 1.0), _WHOLE)),
     ("neljäsosa ruudusta", ((0.0, 0.25), _WHOLE)),
@@ -918,7 +925,8 @@ _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
 )
 #: Words that say the height separates the place.
 _HEIGHT_WORDS = (
-    "z koordinaat", "korkeammalla", "korkeampi", "alempana", "päällä", "buust"
+    "z koordinaat", "korkeammalla", "korkeampi", "ylempänä", "alempana",
+    "päällä", "buust",
 )
 
 
@@ -965,7 +973,7 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
     * every region's ``words`` are a phrase of those quotes and write the
       region's own half-cell;
     * a fraction is the one his words say (:data:`_FRACTION_WORDS`, the
-      lead's rule where he gave no size), and *mutta ei* (but not) makes it
+      size rule he confirmed where he gave no size), and *mutta ei* (but not) makes it
       the rest of the half-cell -- checked on the union of the part's
       regions with those words;
     * a crossing is his *risteys*, and a box of one half-cell where he says
@@ -979,7 +987,12 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
     exist twice in the repo only as the quote inside ``callouts.toml``, so a
     fraction is held to that quote and not to his answer document, which
     lives outside the repository. A misquote made identically in the quote
-    and the geometry passes here.
+    and the geometry passes here. **The same two-copies limit, accepted
+    likewise, holds for the fractions his words mean**: a half, a third or a
+    fifth is written once in :data:`_FRACTION_WORDS` and again as the
+    region's ``x`` / ``y`` in ``callouts.toml`` (only the lead's EDGE is read
+    from one place, the header), so a size copied identically wrong into
+    both passes here.
     """
     quotes = _HIS_WORDS.findall(part.source)
     assert quotes, part.callout

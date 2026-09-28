@@ -472,16 +472,14 @@ def test_the_coarse_names_that_a_part_would_repeat_are_not_repeated() -> None:
 
 def test_what_the_archive_shows_as_one_level_has_no_band() -> None:
     """A28 and the balcony (A15): measured one level, so not built -- short
-    a holds nothing in H3a, and H3b's top half only by his tie answer, with
-    no band; balcony carries no band; and the two bands the band rule
-    drops (H5d, underpass) are whole half-cells."""
+    a holds nothing in H3a; balcony carries no band; and the two bands the
+    band rule drops (H5d, underpass) are whole half-cells."""
     table = _table()
     short = next(
         p for p in table["de_dust2"]["UnderA"].split.parts if p.callout == "short a"
     )
     held = set(short.cells) | {r.cell for r in short.regions}
     assert "H3a" not in held
-    assert [(r.y, r.z) for r in short.regions if r.cell == "H3b"] == [((0.0, 0.5), None)]
     assert "NOT BUILT" in short.source
     inferno = {p.callout: p for p in table["de_inferno"]["Banana"].split.parts}
     assert inferno["ct boost"].cells == ["H5d"] and not inferno["ct boost"].regions
@@ -494,29 +492,78 @@ def test_what_the_archive_shows_as_one_level_has_no_band() -> None:
     assert all(r.z is None for r in balcony.regions)
 
 
-def test_his_answers_to_the_two_review_ties_are_explicit_fractions() -> None:
+def test_his_answer_to_the_e8a_tie_is_two_explicit_halves() -> None:
     """Section 'His answers to the two review ties': E8a's right half is
-    canal and its left half connector; H3b's top half is short (short a)
-    and its bottom half elevator -- each as a fraction, so no tie decides."""
-    table = _table()
-    anubis = {p.callout: p for p in table["de_anubis"]["Canal"].split.parts}
-    dust2 = {p.callout: p for p in table["de_dust2"]["UnderA"].split.parts}
+    canal and its left half connector -- each a fraction, so no tie
+    decides."""
+    anubis = {p.callout: p for p in _table()["de_anubis"]["Canal"].split.parts}
     ties = "section 'His answers to the two review ties, afternoon 2026-09-28'"
 
-    def halves(part, cell):
-        return {(r.x, r.y) for r in part.regions if r.cell == cell}
+    def halves(part):
+        return {(r.x, r.y) for r in part.regions if r.cell == "E8a"}
 
-    assert halves(anubis["canal"], "E8a") == {((0.5, 1.0), (0.0, 1.0))}
-    assert halves(anubis["connector"], "E8a") == {((0.0, 0.5), (0.0, 1.0))}
-    assert halves(dust2["short a"], "H3b") == {((0.0, 1.0), (0.0, 0.5))}
-    assert halves(dust2["elevator"], "H3b") == {((0.0, 1.0), (0.5, 1.0))}
-    for part in (anubis["canal"], anubis["connector"], dust2["short a"], dust2["elevator"]):
+    assert halves(anubis["canal"]) == {((0.5, 1.0), (0.0, 1.0))}
+    assert halves(anubis["connector"]) == {((0.0, 0.5), (0.0, 1.0))}
+    for part in (anubis["canal"], anubis["connector"]):
         assert ties in part.source, part.callout
-    split = table["de_dust2"]["UnderA"].split
-    top = split._rect_of(split.index_of("H3b"))
-    x = ((top[0] + top[2]) / 2 - split.fit.bx) / split.fit.sx
-    y = (split.fit.by - (top[1] + (top[3] - top[1]) / 4)) / split.fit.sy
-    assert split.part_at(x, y, 0.0).callout == "short a"
+
+
+def test_h3b_is_elevator_but_for_shorts_raised_level_in_its_top_part() -> None:
+    """Section 'His answers after Story 4.20', answer 1: in H3b's top part
+    (y [0, 0.5], his unquantified "vajaa puolet") short a holds only the
+    raised level, above its measured band edge; everything else in H3b --
+    the ground of the top part and all of the bottom -- is elevator, which
+    comes after short a and yields to it."""
+    split = _table()["de_dust2"]["UnderA"].split
+    parts = {p.callout: p for p in split.parts}
+    after = "section 'His answers after Story 4.20, evening 2026-09-28'"
+    (region,) = [r for r in parts["short a"].regions if r.cell == "H3b"]
+    assert region.y == (0.0, 0.5) and region.z is not None and region.z[1] == INF
+    assert "H3b" in parts["elevator"].cells and parts["elevator"].broad
+    names = [p.callout for p in split.parts]
+    assert names.index("short a") < names.index("elevator")
+    for callout in ("short a", "elevator"):
+        assert after in parts[callout].source, callout
+    from test_cell_split import _at_pixel, _centre
+
+    # The half-cell's centre by the naming his answer defines, read on its
+    # own (not through CellSplit.index_of), then a quarter up and down.
+    px, py = _centre(split, "H3b")
+    quarter = split.cell[1] / 2 / 4
+    x, top, _ = _at_pixel(split, px, py - quarter)
+    _, bottom, _ = _at_pixel(split, px, py + quarter)
+    edge = region.z[0]
+    assert split.part_at(x, top, edge).callout == "short a"
+    assert split.part_at(x, top, edge - 0.01).callout == "elevator"
+    assert split.part_at(x, bottom, edge + 50.0).callout == "elevator"
+
+
+def test_the_size_rule_is_his_and_no_source_calls_it_the_leads() -> None:
+    """His answer after Story 4.20, answer 2 ("Sopii"): the header gives the
+    size rule to him and cites the section, keeps his unquantified "vajaa
+    puolet" out of it (that half is a reading of one place, in its own
+    source), and no part source still calls it the lead's rule."""
+    from test_cell_split import _header_text
+
+    header = _header_text()
+    assert re.search(
+        r"THE SIZE RULE FOR SIZES HE DID NOT QUANTIFY, HIS SINCE 2026-09-28: "
+        r"proposed by the lead .*? and confirmed by him "
+        r"\(puoliruudut-vastaus-2-2026-09-28\.md section 'His answers after "
+        r"Story 4.20, evening 2026-09-28', answer 2: 'Sopii'\)",
+        header,
+    ), "the header does not give the size rule to him"
+    rule = header[header.index("THE SIZE RULE") : header.index("parts_from = ")]
+    assert "vajaa" not in rule
+    sized = 0
+    for map_name, table in _table().items():
+        for entry in table.values():
+            for part in entry.split.parts if entry.split else []:
+                assert "lead's rule" not in part.source, (map_name, part.callout)
+                if "sized by the" in part.source:
+                    assert "sized by the size rule he confirmed" in part.source
+                    sized += 1
+    assert sized, "no source rests on the size rule"
 
 
 def test_reordering_a_splits_parts_moves_the_hash() -> None:
@@ -651,6 +698,36 @@ def _half_cell(split: CellSplit, name: str, y=(0.0, 1.0)):
     return (x0, y0 + (y1 - y0) * y[0], x1, y0 + (y1 - y0) * y[1])
 
 
+def _band_statement(source: str, edge: float) -> str:
+    """The part of a source that states one band edge: from "band edge
+    <edge> is its midpoint" to the next band's statement or the end, so one
+    band cannot read another band's words."""
+    at = source.index(f"band edge {edge} is its midpoint")
+    following = source.find("band edge ", at + 1)
+    return source[at : following if following != -1 else len(source)]
+
+
+#: The bands the band rule admits, per map, as (part, half-cell or
+#: crossing): every place he names by height that passes the rule on the
+#: archive (zbands-mitattu-2026-09-28.md). The archive test holds the table
+#: to exactly this set, so a band removed or added fails there as well as
+#: in the unit tests -- and the rule is checked on each.
+_BANDED = {
+    "de_inferno": {
+        ("short boost", ("I11c", "I11d", "I12a", "I12b")),
+        ("bridge", "E11c"), ("bridge", "E12a"),
+    },
+    "de_anubis": {
+        ("mid doors window", "F7d"), ("mid doors window", "G7c"),
+        ("bridge", "F7a"), ("bridge", "F7c"), ("bridge", "F8a"), ("bridge", "F8c"),
+    },
+    "de_dust2": {
+        ("short a", "G3b"), ("short a", "G3d"), ("short a", "H3b"),
+        ("ct spawn", "G3b"), ("ct spawn", "G3d"),
+    },
+}
+
+
 @pytest.mark.archive
 @pytest.mark.parametrize("map_name", sorted(_NEW_SPLITS))
 def test_every_height_band_passes_the_band_rule_at_its_largest_gap(
@@ -682,6 +759,13 @@ def test_every_height_band_passes_the_band_rule_at_its_largest_gap(
                 side = "upper" if band[0] == edge else "lower"
                 assert f"is the {side} level" in part.source, (part.callout, side)
     assert edges, map_name
+    banded = {
+        (p.callout, r.cell or tuple(r.crossing))
+        for p in split.parts
+        for r in p.regions
+        if r.z is not None
+    }
+    assert banded == _BANDED[map_name], banded ^ _BANDED[map_name]
     by_callout = {p.callout: p for p in split.parts}
     for edge, rects in edges.items():
         place = _in_rects(ticks, split, rects)
@@ -694,11 +778,19 @@ def test_every_height_band_passes_the_band_rule_at_its_largest_gap(
         ):
             majority = rows.group_by("area").len().sort("len", descending=True)["area"][0]
             for callout in parts[edge]:
-                stated = re.search(
-                    rf"The {side} level is the game's (\w+)", by_callout[callout].source
+                statement = _band_statement(by_callout[callout].source, edge)
+                pattern = (
+                    r"The upper level is the game's (\w+)"
+                    if side == "upper"
+                    else r"the lower the game's (\w+)"
                 )
+                stated = re.search(pattern, statement)
                 if stated:
                     assert stated[1] == majority, (callout, side, majority)
+                elif side == "upper" or "direction rests on his words" not in statement:
+                    # Every band names the game area of both its levels,
+                    # except where one area holds both and his words decide.
+                    raise AssertionError((callout, f"names no {side} level"))
         above = place.filter(pl.col("z") >= edge).group_by("area").len().sort("len")["area"][-1]
         below = place.filter(pl.col("z") < edge).group_by("area").len().sort("len")["area"][-1]
         if above == below:
@@ -735,22 +827,6 @@ def test_every_place_built_without_a_band_fails_the_band_rule(place: str) -> Non
     place_ticks = _in_rects(_live_ticks(require_parsed(), map_name), split, rects)
     assert not _two_levels(place_ticks["z"])[0], place
     assert "fails the band rule" in part.source or "NOT BUILT" in part.source, place
-
-
-@pytest.mark.archive
-def test_h3bs_top_half_is_short_a_by_his_word_though_it_shows_two_levels() -> None:
-    """The one exemption, named so it cannot pass in silence: his answer to
-    the review tie makes H3b's top half short, with no band -- yet by the
-    band rule it shows two levels (UnderA's positions below a gap, ExtendedA's
-    and BombsiteA's ticks above). If the archive stops showing two levels,
-    the exemption covers nothing and this fails."""
-    split = _table()["de_dust2"]["UnderA"].split
-    place = _in_rects(
-        _live_ticks(require_parsed(), "de_dust2"), split, [_half_cell(split, "H3b", (0.0, 0.5))]
-    )
-    assert _two_levels(place["z"])[0]
-    short = next(p for p in split.parts if p.callout == "short a")
-    assert "shows two levels" in short.source
 
 
 @pytest.mark.archive
