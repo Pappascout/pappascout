@@ -115,11 +115,11 @@
         "rows": [
           "  - 3 hell",
           "    - 2 ramp",
-          "      - 1 b site -> secret",
+          "      - 1 b site -> tunnels -> secret ⇄ tunnels",
           "      - 1 ramp",
           "    - 1 rafters -> a site -> hut -> lobby -> radio -> ramp",
-          "  - 1 admin -> ramp -> b site -> secret",
-          "  - 1 ct piha -> main -> a site -> vent -> secret -> sinkku"
+          "  - 1 admin -> ramp -> b site -> tunnels -> secret ⇄ tunnels",
+          "  - 1 ct piha -> main -> a site -> vent -> alakerran sinkku"
         ],
         "won": false
       },
@@ -130,8 +130,8 @@
           "  - 3 hell",
           "    - 2 rafters",
           "      - 1 a site -> squeaky ⇄ a site",
-          "      - 1 heaven ⇄ rafters -> ramp -> b site",
-          "    - 1 ramp -> b site",
+          "      - 1 heaven ⇄ rafters -> ramp -> b rafters (päätelty)",
+          "    - 1 ramp -> b rafters (päätelty) -> b site ⇄ b rafters (päätelty) -> liuska",
           "  - 2 ct piha -> main",
           "    - 1 a site -> lobby -> t roof ⇄ lobby",
           "    - 1 kuoli main (23 s)"
@@ -315,11 +315,11 @@
           "  - 4 hell",
           "    - 2 rafters -> a site -> vent",
           "      - 1 b site",
-          "      - 1 secret -> b site",
+          "      - 1 tunnels -> tuplaovet ⇄ tunnels -> liuska",
           "    - 2 ramp",
-          "      - 1 b site -> kuoli b site (27 s)",
-          "      - 1 kuoli ramp (40 s)",
-          "  - 1 ct piha -> main -> a site -> vent -> secret -> b site"
+          "      - 1 ramppi vasen ⇄ ramp -> kuoli ramppi vasen (40 s)",
+          "      - 1 ramppi vasen -> liuska -> b site -> kuoli b site (27 s)",
+          "  - 1 ct piha -> main -> a site -> vent -> back vents (päätelty) -> b site -> b-safe-plant"
         ],
         "won": false
       }
@@ -457,6 +457,6 @@
     ]
   },
   "limit": "A row is a string, so this catches the model and the renderer together and cannot say which of the two moved. It cannot be re-derived without the archive: the tests that read it without one assert on its own contents, which is a different job. The rows are read on the grid settings.toml declares, because _on_grid filters one demo of this archive down to it permanently -- so the table is the report on THAT grid and not on whatever grid a demo happens to be parsed at. It is an observation and not a rule: importing a demo changes these rows legitimately, and the answer is then to measure the table again and say so in the commit.",
-  "measured": "2026-09-28",
+  "measured": "2026-09-29",
   "note": "EVERY pistol block of every recorded team, keyed team/map/side/pistol, with the route rows as the view renders them from the real archive (Stories 4.11 and 4.13). Produced by running tests/test_calibration._route_blocks_from over the archive -- the same code path the test that reads it back uses -- so the file records what the tool produces and not a hand-written expectation. Since Story 4.13 the route reads every sample point, compresses each player's path to the product owner's junctions and speaks his callouts (src/pappascout/callouts.toml). The rows carry callouts, player counts and measured seconds only: the block's heading, which names the opponent and the date, is DELIBERATELY NOT HERE -- the repository is public and the denylist that guards it lives outside the repository (AD-12). What the heading states is pinned without the names in match_counts.json's played table."
 }

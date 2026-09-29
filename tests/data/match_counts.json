@@ -1562,7 +1562,7 @@
         "seconds": 21.0
       },
       {
-        "area": "hut",
+        "area": "hattuhylly",
         "matches": 4,
         "matches_m": 4,
         "n": 27,
@@ -1572,7 +1572,7 @@
         "seconds": 21.0
       },
       {
-        "area": "hut",
+        "area": "hattuhylly",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
@@ -1582,7 +1582,7 @@
         "seconds": 21.0
       },
       {
-        "area": "hutladder",
+        "area": "hut",
         "matches": 4,
         "matches_m": 4,
         "n": 27,
@@ -1592,7 +1592,7 @@
         "seconds": 21.0
       },
       {
-        "area": "hutladder",
+        "area": "hut",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
@@ -1752,26 +1752,6 @@
         "seconds": 21.0
       },
       {
-        "area": "secret",
-        "matches": 4,
-        "matches_m": 4,
-        "n": 27,
-        "newest": true,
-        "players": 0,
-        "sample_kind": "time",
-        "seconds": 21.0
-      },
-      {
-        "area": "secret",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
-        "newest": false,
-        "players": 1,
-        "sample_kind": "time",
-        "seconds": 21.0
-      },
-      {
         "area": "silo",
         "matches": 4,
         "matches_m": 4,
@@ -1932,6 +1912,26 @@
         "seconds": 21.0
       },
       {
+        "area": "tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 27,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
         "area": "a site",
         "matches": 4,
         "matches_m": 4,
@@ -2012,7 +2012,7 @@
         "seconds": 24.0
       },
       {
-        "area": "hut",
+        "area": "hattuhylly",
         "matches": 4,
         "matches_m": 4,
         "n": 26,
@@ -2022,17 +2022,17 @@
         "seconds": 24.0
       },
       {
-        "area": "hut",
+        "area": "hattuhylly",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
-        "newest": true,
+        "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 24.0
       },
       {
-        "area": "hutladder",
+        "area": "hut",
         "matches": 4,
         "matches_m": 4,
         "n": 26,
@@ -2042,11 +2042,11 @@
         "seconds": 24.0
       },
       {
-        "area": "hutladder",
+        "area": "hut",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
-        "newest": false,
+        "newest": true,
         "players": 1,
         "sample_kind": "time",
         "seconds": 24.0
@@ -2205,7 +2205,7 @@
         "area": "secret",
         "matches": 4,
         "matches_m": 4,
-        "n": 25,
+        "n": 26,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
@@ -2213,9 +2213,9 @@
       },
       {
         "area": "secret",
-        "matches": 2,
+        "matches": 1,
         "matches_m": 4,
-        "n": 2,
+        "n": 1,
         "newest": true,
         "players": 1,
         "sample_kind": "time",
@@ -2442,6 +2442,26 @@
         "seconds": 24.0
       },
       {
+        "area": "tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
         "area": "a site",
         "matches": 4,
         "matches_m": 4,
@@ -2745,19 +2765,9 @@
         "area": "secret",
         "matches": 4,
         "matches_m": 4,
-        "n": 25,
+        "n": 26,
         "newest": true,
         "players": 0,
-        "sample_kind": "time",
-        "seconds": 27.0
-      },
-      {
-        "area": "secret",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
-        "newest": false,
-        "players": 1,
         "sample_kind": "time",
         "seconds": 27.0
       },
@@ -2972,24 +2982,24 @@
         "seconds": 27.0
       },
       {
-        "area": "b site",
+        "area": "tunnels",
         "matches": 4,
         "matches_m": 4,
-        "n": 25,
+        "n": 26,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
-        "seconds": 30.0
+        "seconds": 27.0
       },
       {
-        "area": "b site",
+        "area": "tunnels",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
         "newest": false,
         "players": 1,
         "sample_kind": "time",
-        "seconds": 30.0
+        "seconds": 27.0
       },
       {
         "area": "cross",
@@ -3118,6 +3128,26 @@
         "n": 1,
         "newest": true,
         "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "liuska",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "liuska",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 30.0
       },
@@ -3293,21 +3323,11 @@
       },
       {
         "area": "secret",
-        "matches": 1,
+        "matches": 2,
         "matches_m": 4,
-        "n": 3,
-        "newest": false,
-        "players": 1,
-        "sample_kind": "time",
-        "seconds": 30.0
-      },
-      {
-        "area": "secret",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
+        "n": 4,
         "newest": true,
-        "players": 3,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 30.0
       },
@@ -3486,6 +3506,26 @@
         "matches": 2,
         "matches_m": 4,
         "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
         "newest": true,
         "players": 2,
         "sample_kind": "time",
@@ -3843,10 +3883,10 @@
       },
       {
         "area": "secret",
-        "matches": 1,
+        "matches": 2,
         "matches_m": 4,
-        "n": 2,
-        "newest": false,
+        "n": 3,
+        "newest": true,
         "players": 1,
         "sample_kind": "time",
         "seconds": 33.0
@@ -3858,16 +3898,6 @@
         "n": 2,
         "newest": false,
         "players": 2,
-        "sample_kind": "time",
-        "seconds": 33.0
-      },
-      {
-        "area": "secret",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
-        "newest": true,
-        "players": 3,
         "sample_kind": "time",
         "seconds": 33.0
       },
@@ -4016,6 +4046,26 @@
         "matches": 2,
         "matches_m": 4,
         "n": 3,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
         "newest": true,
         "players": 2,
         "sample_kind": "time",
@@ -4373,10 +4423,10 @@
       },
       {
         "area": "secret",
-        "matches": 1,
+        "matches": 2,
         "matches_m": 4,
-        "n": 1,
-        "newest": false,
+        "n": 2,
+        "newest": true,
         "players": 1,
         "sample_kind": "time",
         "seconds": 36.0
@@ -4393,10 +4443,10 @@
       },
       {
         "area": "secret",
-        "matches": 2,
+        "matches": 1,
         "matches_m": 4,
-        "n": 2,
-        "newest": true,
+        "n": 1,
+        "newest": false,
         "players": 3,
         "sample_kind": "time",
         "seconds": 36.0
@@ -4572,6 +4622,26 @@
         "seconds": 36.0
       },
       {
+        "area": "tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
         "area": "a site",
         "matches": 4,
         "matches_m": 4,
@@ -4953,20 +5023,20 @@
       },
       {
         "area": "secret",
-        "matches": 1,
+        "matches": 2,
         "matches_m": 4,
-        "n": 1,
-        "newest": false,
+        "n": 2,
+        "newest": true,
         "players": 2,
         "sample_kind": "time",
         "seconds": 39.0
       },
       {
         "area": "secret",
-        "matches": 2,
+        "matches": 1,
         "matches_m": 4,
-        "n": 2,
-        "newest": true,
+        "n": 1,
+        "newest": false,
         "players": 3,
         "sample_kind": "time",
         "seconds": 39.0
@@ -5138,6 +5208,26 @@
         "n": 2,
         "newest": true,
         "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 39.0
       },
@@ -5465,7 +5555,7 @@
         "area": "secret",
         "matches": 4,
         "matches_m": 4,
-        "n": 20,
+        "n": 21,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
@@ -5483,10 +5573,20 @@
       },
       {
         "area": "secret",
-        "matches": 2,
+        "matches": 1,
         "matches_m": 4,
-        "n": 3,
-        "newest": true,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
         "players": 3,
         "sample_kind": "time",
         "seconds": 42.0
@@ -5618,6 +5718,36 @@
         "n": 2,
         "newest": false,
         "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
         "sample_kind": "time",
         "seconds": 42.0
       },
@@ -5955,7 +6085,7 @@
         "area": "secret",
         "matches": 4,
         "matches_m": 4,
-        "n": 21,
+        "n": 23,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
@@ -5973,10 +6103,10 @@
       },
       {
         "area": "secret",
-        "matches": 2,
+        "matches": 1,
         "matches_m": 4,
-        "n": 3,
-        "newest": true,
+        "n": 1,
+        "newest": false,
         "players": 3,
         "sample_kind": "time",
         "seconds": 45.0
@@ -6120,6 +6250,46 @@
         "players": 2,
         "sample_kind": "time",
         "seconds": 45.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "tunnels",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "back vents",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "back vents",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
       },
       {
         "area": "cross",
@@ -6355,7 +6525,7 @@
         "area": "secret",
         "matches": 4,
         "matches_m": 4,
-        "n": 25,
+        "n": 27,
         "newest": true,
         "players": 0,
         "sample_kind": "first_contact",
@@ -6363,9 +6533,9 @@
       },
       {
         "area": "secret",
-        "matches": 2,
+        "matches": 1,
         "matches_m": 4,
-        "n": 2,
+        "n": 1,
         "newest": false,
         "players": 1,
         "sample_kind": "first_contact",
@@ -6376,18 +6546,8 @@
         "matches": 1,
         "matches_m": 4,
         "n": 1,
-        "newest": false,
-        "players": 2,
-        "sample_kind": "first_contact",
-        "seconds": null
-      },
-      {
-        "area": "secret",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
         "newest": true,
-        "players": 4,
+        "players": 2,
         "sample_kind": "first_contact",
         "seconds": null
       },
@@ -6587,6 +6747,46 @@
         "matches_m": 4,
         "n": 10,
         "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "tunnels",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "tuplaovet",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "tuplaovet",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
         "players": 1,
         "sample_kind": "first_contact",
         "seconds": null

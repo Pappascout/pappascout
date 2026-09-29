@@ -45,6 +45,7 @@ from pappascout.stages.aggregate import (
 )
 
 _POOL = load_settings(REAL_SETTINGS, env_files=()).league.map_pool
+INF = float("inf")
 
 
 def _shipped() -> dict:
@@ -75,11 +76,23 @@ SPLITS = sorted(_every_split())
 
 def _at_pixel(split: CellSplit, px: float, py: float) -> tuple[float, float, float]:
     """A game position whose projection is ``(px, py)``, on the fitted floor
-    (at any height where the split has no floor cut)."""
+    (at any height where the split has no floor cut): 100 units above
+    ``zmin``, or -- on a floor cut from above (Story 4.24, Nuke's lower
+    floor) -- 300 units below ``zmax``: z -770 on Nuke, 2 units under the
+    site floor (z -768), so under every band over it -- a spot a whole
+    half-cell names is then its floor's, away from a band edge a centre
+    could sit on."""
+    low, high = split.floor_band
+    if low != -INF:
+        z = low + 100.0
+    elif high != INF:
+        z = high - 300.0
+    else:
+        z = 100.0
     return (
         (px - split.fit.bx) / split.fit.sx,
         (split.fit.by - py) / split.fit.sy,
-        (split.zmin if split.zmin is not None else 0.0) + 100.0,
+        z,
     )
 
 
@@ -728,6 +741,7 @@ def test_every_hashed_split_and_part_field_moves_the_hash(tmp_path: Path) -> Non
     split_variants = {
         "fit": {"fit": split.fit.model_copy(update={"sx": 1.5})},
         "zmin": {"zmin": -400.0},
+        "zmax": {"zmax": -300.0},
         "origin": {"origin": (1.0, 0.0)},
         "cell": {"cell": (20.0, 11.0)},
         "columns": {"columns": "ABCE"},
@@ -895,6 +909,11 @@ _READ_AS = re.compile(
 )
 #: A half-cell as his free text writes it: any case (*h5d*, *H12B*), glued
 #: to a Finnish ending (*E8b:hen*, *G11dja*), with his range form *F9a-d*.
+#: Story 4.24: a half-cell his words name, left out as a known limit.
+_KNOWN_LIMIT = re.compile(r"KNOWN LIMIT, ([A-P][0-9]+[a-d]):")
+#: Story 4.24: a region the lead reads from his words that name no
+#: half-cell for it, with those words: "the lead's region C6d from '...'".
+_LEAD_REGION = re.compile(r"the lead's region ([A-P][0-9]+[a-d]) from '([^']*)'")
 _FREE_CELL = re.compile(
     r"(?<![A-Za-z0-9])([A-Pa-p])([1-9][0-9]*)([a-dA-D])(?:[-–]([a-d]))?(?![0-9])"
 )
@@ -936,6 +955,27 @@ _WHOLE = (0.0, 1.0)
 #: half by half corner (his own corner size, "puolet korkeudesta ja
 #: leveydestä").
 _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
+    # Story 4.24, the lead's region C6d (decision 6): the rafter's ring,
+    # "Rafteri kiertää koko siten ympäri", closes along the lower half, as
+    # his bottom leg does in D6c ("alapuoliskossa").
+    ("rafteri kiertää koko siten ympäri", (_WHOLE, (0.5, 1.0))),
+    # Story 4.24, his B site answer (vastaus-lobby-bsite-2026-09-29.md). The
+    # phrases that read a fraction by what the next place leaves, first:
+    # E6a's bottom third is where the stairs start, so tuplaovet is the rest.
+    ("sen alakolmannes varmaankin on se mistä portaat", (_WHOLE, (0.0, 2 / 3))),
+    # Control's stairs run down E5d to its bottom third, tuplaovet's.
+    ("ruudun e5d ala kolmannekseen", (_WHOLE, (0.0, 2 / 3))),
+    # C7b is vent "samalla kulutuksella kuin D7a": D7a's second fifth.
+    ("samalla kulutuksella kuin d7a", (_WHOLE, (0.2, 0.4))),
+    ("toista viidennestä ylhäältä", (_WHOLE, (0.2, 0.4))),
+    # "vähän yli puolisko", a little over half, unquantified: read as 0.6.
+    ("vasen vähän yli puolisko", ((0.0, 0.6), _WHOLE)),
+    ("alakolmannes", (_WHOLE, (2 / 3, 1.0))),
+    ("ala kolmannes", (_WHOLE, (2 / 3, 1.0))),
+    ("yläkolmannes", (_WHOLE, (0.0, 1 / 3))),
+    ("oikea kolmannes", ((2 / 3, 1.0), _WHOLE)),
+    ("oikea puolisko", ((0.5, 1.0), _WHOLE)),
+    ("vasen alanurkka", ((0.0, 0.5), (0.5, 1.0))),
     # A3: "yläreuna crossia ja alapuolisko yläbanaania" -- the top is the
     # half the bottom half leaves (the lead's reading, not the edge rule).
     ("yläreuna crossia ja alapuolisko", (_WHOLE, (0.0, 0.5))),
@@ -1061,10 +1101,24 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
     for written, _ in readings:
         assert any(written in quote for quote in quotes), (part.callout, written)
     written_cells = {c for q in quotes for c in _free_cells(_read(q, readings))}
+    # Story 4.24: a half-cell his words name that is left out as a known
+    # limit (the band rule refuses it) is not read away: the source says
+    # 'KNOWN LIMIT, <half-cell>:', and the part does not hold it.
+    left_out = set(_KNOWN_LIMIT.findall(part.source))
+    assert left_out <= written_cells, (part.callout, left_out)
+    # And a region his words give no half-cell for is the lead's, quoted
+    # with the words it rests on, and makes the part inferred.
+    leads = dict(_LEAD_REGION.findall(part.source))
+    for cell, words in leads.items():
+        assert any(words in quote for quote in quotes), (part.callout, words)
+        assert part.confidence == "inferred", (part.callout, cell)
     held = set(part.cells)
     for region in part.regions:
         held |= {region.cell} if region.cell else set(region.crossing)
-    assert written_cells == held, (part.callout, written_cells ^ held)
+    assert not left_out & held, (part.callout, left_out & held)
+    assert (written_cells - left_out) | set(leads) == held, (
+        part.callout, ((written_cells - left_out) | set(leads)) ^ held
+    )
     groups: dict[tuple[str, str], list] = {}
     for region in part.regions:
         assert any(region.words in quote for quote in quotes), region.words
@@ -1075,6 +1129,8 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
             if "yhden ruudun kokoinen" in region.words:
                 assert region.size == 1.0, region.words
         else:
+            if leads.get(region.cell) == region.words:
+                named.add(region.cell)
             assert region.cell in named, (region.cell, region.words)
             groups.setdefault((region.cell, region.words), []).append(region)
         if region.z is not None:
@@ -1082,10 +1138,12 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
                 term in quote for quote in quotes for term in _HEIGHT_WORDS
             ), part.callout
             # The measurement document the band came from: zbands (Story
-            # 4.20) or, for Nuke's lobby, the lobby's own (Story 4.23).
+            # 4.20), for Nuke's lobby the lobby's own (Story 4.23), for
+            # Nuke's lower floor the B site tables (Story 4.24).
             assert re.search(
                 r"Height band measured, not guessed \([^)]*"
-                r"(?:zbands-mitattu-2026-09-28|nuke-lobby-z-mitattu-2026-09-29)"
+                r"(?:zbands-mitattu-2026-09-28|nuke-lobby-z-mitattu-2026-09-29"
+                r"|bsite-taulukot-2026-09-29)"
                 r"\.md",
                 part.source,
             ), part.callout
@@ -1514,26 +1572,116 @@ def test_every_grid_field_has_a_variant() -> None:
 def test_the_splits_of_one_map_are_refused_on_two_grids(
     tmp_path: Path, field: str
 ) -> None:
-    """His half-cell names are read off one picture, so two splits of one
-    map on different grids are refused -- here the same split copied onto
-    a second area with one grid field changed; unchanged, the two load, and
-    a different ``zmin`` loads too, because a floor cut belongs to one
-    area."""
+    """His half-cell names are read off one picture of a floor, so two
+    splits on one floor of a map on different grids are refused -- here the
+    same split copied onto a second area with one grid field changed;
+    unchanged, the two load. On two floors that do not overlap (Story 4.24)
+    the same change loads: each floor is its own picture."""
     one = _toml_split(_part("a", '"A1a"'))
     two = one.replace("de_nuke.Outside", "de_nuke.Yard")
     path = tmp_path / "callouts.toml"
     path.write_text(one + "\n" + two, encoding="utf-8")
     assert set(load_callouts(["de_nuke"], path)["de_nuke"]) == {"Outside", "Yard"}
-    path.write_text(
-        one + "\n" + two.replace("zmin = -500.0", "zmin = -400.0"),
-        encoding="utf-8",
-    )
-    assert set(load_callouts(["de_nuke"], path)["de_nuke"]) == {"Outside", "Yard"}
     old, new = _GRID_VARIANTS[field]
     assert two.count(old) == 1
     path.write_text(one + "\n" + two.replace(old, new), encoding="utf-8")
-    with pytest.raises(SettingsError, match="not on one grid"):
+    with pytest.raises(SettingsError, match="on one floor but not on one grid"):
         load_callouts(["de_nuke"], path)
+    below = two.replace(old, new).replace("zmin = -500.0", "zmax = -500.0")
+    path.write_text(one + "\n" + below, encoding="utf-8")
+    assert set(load_callouts(["de_nuke"], path)["de_nuke"]) == {"Outside", "Yard"}
+
+
+@pytest.mark.parametrize(
+    "floor",
+    ["zmin = -400.0", "zmax = -400.0", "zmin = -600.0\nzmax = -400.0", ""],
+)
+def test_splits_on_overlapping_floors_must_be_one_floor(
+    tmp_path: Path, floor: str
+) -> None:
+    """Story 4.24: two splits whose floors overlap are on one floor, so a
+    position there has one floor's grid -- their zmin and zmax must be the
+    same. The yard's floor is z >= -500; each variant meets it without
+    being it (a second cut at -400, a lower floor reaching above -500, a
+    band across the cut, and no cut at all), and is refused."""
+    one = _toml_split(_part("a", '"A1a"'))
+    two = one.replace("de_nuke.Outside", "de_nuke.Yard").replace(
+        "zmin = -500.0\n", f"{floor}\n" if floor else ""
+    )
+    path = tmp_path / "callouts.toml"
+    path.write_text(one + "\n" + two, encoding="utf-8")
+    with pytest.raises(SettingsError, match="floors that overlap and differ"):
+        load_callouts(["de_nuke"], path)
+
+
+def test_two_floors_that_meet_at_the_cut_do_not_overlap(tmp_path: Path) -> None:
+    """The upper floor holds z >= zmin and the lower z < zmax, so a cut
+    written once as both -- Nuke's -470 -- divides every height between the
+    two floors exactly once: a position at the cut is the upper floor's."""
+    one = _toml_split(_part("a", '"A1a"'))
+    two = one.replace("de_nuke.Outside", "de_nuke.Yard").replace(
+        "zmin = -500.0", "zmax = -500.0"
+    ).replace('callout = "a"', 'callout = "b"')
+    path = tmp_path / "callouts.toml"
+    path.write_text(one + "\n" + two, encoding="utf-8")
+    table = load_callouts(["de_nuke"], path)["de_nuke"]
+    upper, lower = table["Outside"].split, table["Yard"].split
+    assert upper.floor_band == (-500.0, INF)
+    assert lower.floor_band == (-INF, -500.0)
+    for z in (-500.0, -499.99, 0.0):
+        assert upper.part_at(1.0, -1.0, z).callout == "a", z
+        assert lower.part_at(1.0, -1.0, z) is None, z
+    for z in (-500.01, -1000.0):
+        assert upper.part_at(1.0, -1.0, z) is None, z
+        assert lower.part_at(1.0, -1.0, z).callout == "b", z
+
+
+@pytest.mark.parametrize(
+    ("floor", "message"),
+    [
+        ("zmin = -400.0\nzmax = -400.0", "is empty"),
+        ("zmin = -400.0\nzmax = -500.0", "is empty"),
+        ("zmin = -inf", "finite"),
+        ("zmax = inf", "finite"),
+    ],
+)
+def test_a_floor_is_a_finite_range_with_zmin_below_zmax(
+    tmp_path: Path, floor: str, message: str
+) -> None:
+    text = _toml_split(_part("a", '"A1a"')).replace("zmin = -500.0", floor)
+    path = tmp_path / "callouts.toml"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(SettingsError, match=message):
+        load_callouts(["de_nuke"], path)
+
+
+def test_nukes_splits_are_on_two_floors_cut_at_one_height() -> None:
+    """Decision 1 of Story 4.24, as shipped: every de_nuke split is on the
+    upper floor (z >= -470: the yard, lobby) or the lower (z < -470: B site,
+    ramp's lower part, tunnels, control), the two meet at one cut, and the
+    lower floor's fit has the upper's scale with an offset of its own --
+    the guide draws the lower floor apart, at the same scale.
+
+    **The literal -470 is the only guard of the cut.** On this archive the
+    cut moves no callout anywhere between -500 and -470: no Outside or
+    Lobby row lies there, and the Ramp positions there, the landing at
+    z -480 in C2b and D2a, are ramp on either floor since takaboksi was
+    withdrawn (Story 4.24 review). A mutation of the cut to -500 passes
+    every archive test and fails only here, so the number is pinned as the
+    lead's decision 1 and not as a measurement."""
+    table = _shipped()
+    floors = {
+        area: entry.split.floor_band
+        for area, entry in table.items()
+        if entry.split is not None
+    }
+    upper = {a for a, f in floors.items() if f == (-470.0, INF)}
+    lower = {a for a, f in floors.items() if f == (-INF, -470.0)}
+    assert upper == {"Outside", "Lobby"}
+    assert lower == {"BombsiteB", "Ramp", "Tunnels", "Observation"}
+    up, down = table["Outside"].split.fit, table["BombsiteB"].split.fit
+    assert (down.sx, down.sy) == (up.sx, up.sy)
+    assert (down.bx, down.by) != (up.bx, up.by)
 
 
 def test_a_split_with_no_floor_cut_places_a_position_at_any_height(
@@ -1548,3 +1696,71 @@ def test_a_split_with_no_floor_cut_places_a_position_at_any_height(
     assert split.zmin is None
     assert split.part_at(1.0, -1.0, -1e6).callout == "a"
     assert split.part_at(1.0, -1.0, None) is None
+
+
+@pytest.mark.parametrize("area", ["BombsiteB", "Lobby"])
+@pytest.mark.parametrize("bad", [float("inf"), float("-inf")])
+def test_an_infinite_height_is_no_position_on_any_floor(area: str, bad: float) -> None:
+    """Story 4.24: an infinity in z is no position on a floor cut from above
+    (Nuke's lower floor, where -inf is below every cut) and on a split with
+    no floor cut (Ancient's), not only on Nuke's upper floor, where the
+    zmin check would refuse -inf anyway."""
+    ancient = load_callouts(_POOL)["de_ancient"]["Outside"].split
+    for split in (_shipped()[area].split, ancient):
+        first = split.parts[0]
+        name = first.cells[0] if first.cells else first.regions[0].cell
+        x, y, _ = _at_pixel(split, *_centre(split, name))
+        assert split.part_at(x, y, bad) is None, (area, bad)
+
+
+#: A part's source that names the game area it is the same place as.
+_SAME_AREA = re.compile(r"Junction basis: the same place as the game's (\w+)")
+#: A part's source that names the split of another area it is shared with.
+_SAME_PART = re.compile(r"The same place as the part of (\w+)'s split")
+
+
+@pytest.mark.parametrize("key", SPLITS)
+def test_a_part_that_is_another_place_carries_its_callout(key: str) -> None:
+    """Story 4.24 (review VG F3): a part whose source says it is the same
+    place as a game area carries that area's callout, and one that says it
+    is the same place as a part of another area's split has the same callout
+    there -- derived from the sources and the table, never copied."""
+    table, split = _every_split()[key]
+    for part in split.parts:
+        area = _SAME_AREA.search(part.source)
+        if area:
+            assert table[area[1]].callout == part.callout, (part.callout, area[1])
+        other = _SAME_PART.search(part.source)
+        if other:
+            twins = [p.callout for p in table[other[1]].split.parts]
+            assert part.callout in twins, (part.callout, other[1])
+
+
+#: The places his quoted words name on a split, as the split's source lists
+#: them (Story 4.24).
+_HIS_PLACES = re.compile(r"His places on this split, from his quoted words: ([^.]*)\.")
+
+
+@pytest.mark.parametrize("key", SPLITS)
+def test_every_place_his_words_name_on_a_split_is_built_or_not_built(key: str) -> None:
+    """The reverse of the quote check (Story 4.24, review VG R7, R11, R12):
+    every place a split's source lists from his quoted words is a part of
+    the split, the area's own callout, or named
+    NOT BUILT in the split's source -- so a part deleted by mistake fails
+    here by name. Each listed name is itself in his quoted words, so the
+    list cannot hold a name of ours."""
+    table, split = _every_split()[key]
+    listed = _HIS_PLACES.search(split.source)
+    if listed is None:
+        return
+    area = key.split(".")[1]
+    quotes = " ".join(
+        _HIS_WORDS.findall(split.source)
+        + [q for p in split.parts for q in _HIS_WORDS.findall(p.source)]
+    ).lower()
+    parts = {p.callout for p in split.parts}
+    for name in listed[1].split(", "):
+        assert name in quotes, (key, name)
+        if name == table[area].callout or name in parts:
+            continue
+        assert f"NOT BUILT: {name}." in split.source, (key, name)

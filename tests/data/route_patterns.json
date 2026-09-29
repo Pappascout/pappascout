@@ -2931,7 +2931,6 @@
         "Reitti: lobby -> trophy, 1 pelaaja jää (5/29 kierroksesta, 3/4 ottelussa, uusin mukana)",
         "Reitti: lobby -> squeaky, 2 pelaajaa (4/29 kierroksesta, 3/4 ottelussa, uusin mukana)",
         "Reitti: lobby -> squeaky, 1 pelaaja jää (4/29 kierroksesta, 3/4 ottelussa, uusin mukana)",
-        "Reitti: kontakti -> t red -> secret, jopa 3 pelaajaa jää (4/29 kierroksesta, 2/4 ottelussa, uusin mukana)",
         "Reitti: lobby -> radio, 3 pelaajaa (3/29 kierroksesta, 3/4 ottelussa, ei uusimmassa)",
         "Reitti: lobby -> radio -> ramp, jopa 3 pelaajaa jää (3/29 kierroksesta, 3/4 ottelussa, ei uusimmassa)"
       ],
@@ -3474,52 +3473,6 @@
           "stayed": true
         },
         {
-          "newest": true,
-          "path": [
-            [
-              "kontakti",
-              null,
-              null,
-              null
-            ],
-            [
-              "t red",
-              null,
-              null,
-              null
-            ],
-            [
-              "secret",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              2,
-              3
-            ],
-            [
-              2,
-              3,
-              3
-            ],
-            [
-              2,
-              5,
-              2
-            ],
-            [
-              2,
-              11,
-              1
-            ]
-          ],
-          "stayed": true
-        },
-        {
           "newest": false,
           "path": [
             [
@@ -3692,6 +3645,84 @@
           "stayed": true
         },
         {
+          "newest": true,
+          "path": [
+            [
+              "kontakti",
+              null,
+              null,
+              null
+            ],
+            [
+              "t red",
+              null,
+              null,
+              null
+            ],
+            [
+              "secret",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              2,
+              4
+            ],
+            [
+              2,
+              3,
+              3
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "kontakti",
+              null,
+              null,
+              null
+            ],
+            [
+              "t red",
+              null,
+              null,
+              null
+            ],
+            [
+              "secret",
+              null,
+              null,
+              null
+            ],
+            [
+              "tunnels",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              2,
+              3
+            ],
+            [
+              2,
+              3,
+              3
+            ]
+          ],
+          "stayed": true
+        },
+        {
           "newest": false,
           "path": [
             [
@@ -3746,6 +3777,42 @@
             [
               3,
               9,
+              1
+            ]
+          ],
+          "stayed": true
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "kontakti",
+              null,
+              null,
+              null
+            ],
+            [
+              "t red",
+              null,
+              null,
+              null
+            ],
+            [
+              "secret",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              2,
+              5,
+              2
+            ],
+            [
+              2,
+              11,
               1
             ]
           ],
@@ -5842,42 +5909,6 @@
             ]
           ],
           "stayed": false
-        },
-        {
-          "newest": true,
-          "path": [
-            [
-              "lobby",
-              null,
-              null,
-              null
-            ],
-            [
-              "radio",
-              null,
-              null,
-              null
-            ],
-            [
-              "ramp",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              20,
-              1
-            ],
-            [
-              0,
-              23,
-              3
-            ]
-          ],
-          "stayed": true
         },
         {
           "newest": true,
@@ -8159,42 +8190,6 @@
             ]
           ],
           "stayed": false
-        },
-        {
-          "newest": true,
-          "path": [
-            [
-              "hell",
-              null,
-              null,
-              null
-            ],
-            [
-              "ramp",
-              null,
-              null,
-              null
-            ],
-            [
-              "b site",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              14,
-              1
-            ],
-            [
-              0,
-              17,
-              1
-            ]
-          ],
-          "stayed": true
         }
       ]
     },
@@ -8294,48 +8289,6 @@
             ]
           ],
           "stayed": false
-        },
-        {
-          "newest": true,
-          "path": [
-            [
-              "kontakti",
-              null,
-              null,
-              null
-            ],
-            [
-              "t red",
-              null,
-              null,
-              null
-            ],
-            [
-              "secret",
-              null,
-              null,
-              null
-            ],
-            [
-              "b site",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              3,
-              2
-            ],
-            [
-              0,
-              4,
-              1
-            ]
-          ],
-          "stayed": true
         },
         {
           "newest": true,

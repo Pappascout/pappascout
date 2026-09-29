@@ -3218,8 +3218,9 @@ def test_the_callout_table_differs_from_the_game_table_only_where_callouts_merge
 
     A callout fed by one area is that area under another name, so its rows
     must be the game table's rows renamed, row for row. A merged callout
-    (*radio* = ``Control`` + ``Trophy``, *secret* = ``Secret`` +
-    ``Tunnels``, *rafters* = ``Catwalk`` + ``Rafters``) is one place with one
+    (*radio* = ``Control`` + ``Trophy``, *secret* = ``Secret`` plus
+    ``Tunnels``' F8c part, *rafters* = ``Catwalk`` + ``Rafters``) is one
+    place with one
     count and no sum of the per-area rows gives it, so its rows are excluded
     from the comparison -- and required to exist in the full-buy group,
     which is where the re-pin lost 36 rows to the merges.
@@ -3915,8 +3916,9 @@ GUIDE_FIT = json.loads(
 def _guide_of(map_name: str) -> dict:
     """A map's guide entry with its fit: from ``guide_fit.json``, or -- where
     the entry says ``fit_from`` -- from the split in ``callouts.toml`` that
-    carries it: one value per map, held equal on every split of the map by
-    the loader (Story 4.17: *"Derived, not a second copy"*)."""
+    carries it: one value per floor of a map, held equal on every split of
+    that floor by the loader (Story 4.17: *"Derived, not a second copy"*;
+    per floor since Story 4.24), with the floor's ``zmin`` and ``zmax``."""
     guide = GUIDE_FIT["maps"][map_name]
     if "fit_from" not in guide:
         return guide
@@ -3926,8 +3928,9 @@ def _guide_of(map_name: str) -> dict:
         **guide,
         "image": split.image,
         "fit": split.fit.model_dump(),
-        # A split on an image of one floor has no zmin (de_ancient).
+        # A split on an image of one floor has no floor cut (de_ancient).
         **({} if split.zmin is None else {"zmin": split.zmin}),
+        **({} if split.zmax is None else {"zmax": split.zmax}),
     }
 
 
@@ -3966,6 +3969,8 @@ def _area_boxes(root: Path) -> dict[tuple[str, str], list[float]]:
         ticks = pl.concat(frames[map_name]).filter(pl.col("area") == area)
         if "zmin" in guide:
             ticks = ticks.filter(pl.col("z") >= guide["zmin"])
+        if "zmax" in guide:
+            ticks = ticks.filter(pl.col("z") < guide["zmax"])
         px = ticks["x"].cast(pl.Float64) * fit["sx"] + fit["bx"]
         py = -ticks["y"].cast(pl.Float64) * fit["sy"] + fit["by"]
         boxes[(map_name, area)] = [

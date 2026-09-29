@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 import re
 import tomllib
+from itertools import combinations
 from math import floor, isfinite
 from pathlib import Path
 from collections.abc import Iterator, Mapping
@@ -95,6 +96,7 @@ __all__ = [
     "GuideFit",
     "MapCallouts",
     "NamedConfidence",
+    "SPLIT_FLOOR_FIELDS",
     "SPLIT_GRID_FIELDS",
     "load_callouts",
     "named_places",
@@ -2061,16 +2063,24 @@ class CellSplit(_Section):
 
     **The geometry is the pictures'.** A position is projected with
     :attr:`fit` (the fit of Story 4.16, unrounded as the pictures were
-    drawn; one value per map, carried by each split of the map and refused
-    at load if it differs -- ``tests/data/guide_fit.json`` reads it from
-    here through ``fit_from``), then placed on the grid of
+    drawn; one value per floor of a map, carried by each split on that
+    floor and refused at load if it differs -- ``tests/data/guide_fit.json``
+    reads it from here through ``fit_from``), then placed on the grid of
     :attr:`columns` x :attr:`rows` cells whose top-left corner is
     :attr:`origin` and whose size is :attr:`cell`, each cell divided into
-    the four half-cells he names (``K13b``). A position below :attr:`zmin`
-    is not on the floor the image draws and is not split: it keeps the
-    area's own callout, and so does a position with no coordinates. A split
-    whose fit was made with no floor cut (Ancient's, Story 4.18) has no
-    :attr:`zmin`, and every position with coordinates is split.
+    the four half-cells he names (``K13b``).
+
+    **A split is on one floor** (Story 4.24): the height range
+    ``[zmin, zmax)`` its image draws. A position outside it -- below
+    :attr:`zmin` or at or above :attr:`zmax` -- is not on that floor and is
+    not split: it keeps the area's own callout, and so does a position with
+    no coordinates. Nuke's guide draws the upper floor (``zmin``, the yard
+    and lobby) and, apart, the lower floor (``zmax``, B site and what lies
+    around it), each with its own fit. A split whose fit was made with no
+    floor cut (Ancient's, Story 4.18) has neither, and every position with
+    coordinates is split. An area has one split, so an area that spans two
+    floors (Nuke's ``Ramp``) is split on one of them, and its positions on
+    the other keep its own callout.
 
     **A position takes, in order:** the part whose box holds it; else the
     **first part in table order** that names its half-cell or holds it in a
@@ -2100,15 +2110,18 @@ class CellSplit(_Section):
     overlaps no earlier part), a half-cell outside the grid, a crossing
     with no size or whose half-cells do not meet at one point, two parts with one
     callout, and two boxes that overlap -- each would leave a position with
-    two answers, or a flag with no meaning. Across the areas of one map,
-    :func:`load_callouts` refuses splits on different grids
-    (:data:`SPLIT_GRID_FIELDS`), so a half-cell's name means one place of
-    the image on every split of the map.
+    two answers, or a flag with no meaning; and a floor whose ``zmin`` is
+    not below its ``zmax`` or is not finite. Across the areas of one map,
+    :func:`load_callouts` refuses splits on one floor that are on different
+    grids (:data:`SPLIT_GRID_FIELDS`), and splits whose floors overlap
+    without being one floor (:data:`SPLIT_FLOOR_FIELDS`), so a half-cell's
+    name means one place of one image on every split of that floor.
     """
 
     image: str = Field(min_length=1)
     fit: GuideFit
     zmin: float | None = None
+    zmax: float | None = None
     origin: tuple[float, float]
     cell: tuple[float, float]
     columns: str = Field(min_length=1)
@@ -2134,6 +2147,13 @@ class CellSplit(_Section):
     def _check_the_split(self) -> "CellSplit":
         if self.cell[0] <= 0 or self.cell[1] <= 0:
             raise ValueError("a grid cell has a positive width and height.")
+        if not all(isfinite(v) for v in (self.zmin, self.zmax) if v is not None):
+            raise ValueError("a floor's zmin and zmax are finite heights.")
+        if not self.floor_band[0] < self.floor_band[1]:
+            raise ValueError(
+                f"the floor [zmin {self.zmin}, zmax {self.zmax}) is empty; "
+                "zmin must be below zmax."
+            )
         if not re.fullmatch(r"[A-Z]+", self.columns) or len(
             set(self.columns)
         ) != len(self.columns):
@@ -2311,6 +2331,18 @@ class CellSplit(_Section):
             f"{'abcd'[2 * (row % 2) + column % 2]}"
         )
 
+    @property
+    def floor_band(self) -> ZBand:
+        """The height range ``[zmin, zmax)`` of the floor the image draws
+        (Story 4.24), as a :data:`ZBand` -- a side left open (an infinity)
+        where the split has no cut there -- so the floor is tested with the
+        bands' own :func:`_z_inside` and :func:`_bands_meet`. Named apart
+        from :func:`math.floor`, which :meth:`part_at` also calls."""
+        return (
+            -float("inf") if self.zmin is None else self.zmin,
+            float("inf") if self.zmax is None else self.zmax,
+        )
+
     def pixel(self, x: float, y: float) -> tuple[float, float]:
         """A game position projected onto the guide image (:attr:`fit`)."""
         return (
@@ -2355,8 +2387,8 @@ class CellSplit(_Section):
     ) -> CellPart | None:
         """The part a position is counted under, or ``None`` where the split
         cannot place it: a coordinate missing or not finite (NaN or an
-        infinity is no position, as elsewhere in the codebase), below
-        :attr:`zmin` where the split has one, or -- on a split of an area
+        infinity is no position, as elsewhere in the codebase), off the
+        split's floor (:attr:`floor_band`, Story 4.24), or -- on a split of an area
         that is not coarse (Story 4.23) -- held by no part's box, half-cell
         or region and band: the rest of the room keeps the area's own
         callout, and the nearest rule does not apply.
@@ -2369,7 +2401,7 @@ class CellSplit(_Section):
         area's rest or the nearest half-cell, as the split's form says."""
         if any(v is None or not isfinite(v) for v in (x, y, z)):
             return None
-        if self.zmin is not None and z < self.zmin:  # type: ignore[operator]
+        if not _z_inside(self.floor_band, z):  # type: ignore[arg-type]
             return None
         px, py = self.pixel(x, y)
         for part in self.parts:
@@ -2410,13 +2442,20 @@ class CellSplit(_Section):
 
 
 #: The fields that make a split's grid: the image and its fit, and the
-#: grid laid on it. Every split of one map must agree on them (Story 4.18:
-#: Ancient's three splits are one grid, as his pictures are), so the fit
-#: written on each is checked to be one value, not three that may drift.
-#: ``zmin`` is not the grid: a floor cut belongs to one area.
+#: grid laid on it. Every split **on one floor** of one map must agree on
+#: them (Story 4.18: Ancient's three splits are one grid, as his pictures
+#: are), so the fit written on each is checked to be one value, not three
+#: that may drift. Since Story 4.24 the rule is one grid per floor: Nuke's
+#: guide draws its lower floor apart, so that floor has a fit of its own.
 SPLIT_GRID_FIELDS: tuple[str, ...] = (
     "image", "fit", "origin", "cell", "columns", "rows"
 )
+#: The fields that make a split's floor (Story 4.24): the height range
+#: ``[zmin, zmax)`` its image draws, a side left open where one is absent.
+#: Two splits of one map whose ranges overlap (half-open, so [a, b) and
+#: [b, c) are two floors) are on one floor, and must then have the same
+#: range and the same grid.
+SPLIT_FLOOR_FIELDS: tuple[str, ...] = ("zmin", "zmax")
 
 
 class CalloutEntry(_Section):
@@ -2626,9 +2665,14 @@ def load_callouts(
     while describing nothing, and every route on it would lose the
     ``no_table`` note that says so.
 
-    **The splits of one map are on one grid** (Story 4.18): each carries
-    the image, fit and grid (:data:`SPLIT_GRID_FIELDS`), and they must be
-    equal, because his half-cell names are read off one picture grid.
+    **The splits of one floor of a map are on one grid** (Story 4.18, per
+    floor since Story 4.24): each carries the image, fit and grid
+    (:data:`SPLIT_GRID_FIELDS`) and its floor (:data:`SPLIT_FLOOR_FIELDS`).
+    Two splits whose floors overlap are on one floor, so their floors must
+    be equal and their grids too, because his half-cell names are read off
+    one picture grid of that floor; splits on floors that do not overlap
+    (Nuke's upper and lower) may carry different grids, as the guide draws
+    the floors apart.
 
     **The limit, stated:** an area name is not checked here. The loader has
     no list of the game's areas, so a misspelt area loads and simply never
@@ -2693,18 +2737,35 @@ def load_callouts(
                 "table gives no callout. That area prints the game's name, "
                 "so the report would read the two as one place."
             )
-        grids = {
-            area: {key: getattr(entry.split, key) for key in SPLIT_GRID_FIELDS}
+        splits = {
+            area: entry.split
             for area, entry in entries.items()
             if entry.split is not None
         }
-        if len({repr(grid) for grid in grids.values()}) > 1:
-            raise SettingsError(
-                f"The callout table {path}: the splits of [{map_name}] "
-                f"({', '.join(grids)}) are not on one grid; "
-                f"{', '.join(SPLIT_GRID_FIELDS)} must be the same on each, so "
-                "a half-cell's name means one place of the image."
-            )
+        for one, two in combinations(splits, 2):
+            if not _bands_meet(splits[one].floor_band, splits[two].floor_band):
+                continue  # two floors, which the guide draws apart
+            if splits[one].floor_band != splits[two].floor_band:
+                raise SettingsError(
+                    f"The callout table {path}: the splits of [{map_name}] "
+                    f"{one} and {two} are on floors that overlap and differ "
+                    f"({list(splits[one].floor_band)} against "
+                    f"{list(splits[two].floor_band)}); "
+                    f"{', '.join(SPLIT_FLOOR_FIELDS)} "
+                    "must be the same on splits of one floor, so a position "
+                    "is on one floor's grid."
+                )
+            if any(
+                getattr(splits[one], key) != getattr(splits[two], key)
+                for key in SPLIT_GRID_FIELDS
+            ):
+                raise SettingsError(
+                    f"The callout table {path}: the splits of [{map_name}] "
+                    f"{one} and {two} are on one floor but not on one grid; "
+                    f"{', '.join(SPLIT_GRID_FIELDS)} must be the same on each "
+                    "split of a floor, so a half-cell's name means one place "
+                    "of the image."
+                )
         by_callout: dict[str, tuple[str, CalloutEntry | CellPart]] = {}
         for area, entry in named:
             if entry.callout is None:

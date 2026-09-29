@@ -120,16 +120,29 @@
 #                      keys: image, fit (the Story 4.16 projection
 #                      px = sx*x + bx, py = -sy*y + by,
 #                      unrounded as the pictures were drawn -- one value per
-#                      map, carried by each split and refused if it differs;
-#                      tests/data/guide_fit.json reads it through
-#                      fit_from), zmin (a position below it is not on the
-#                      floor the image draws and keeps the coarse name; absent
-#                      where the fit has no floor cut), origin
+#                      floor of a map, carried by each split on that floor
+#                      and refused if it differs; tests/data/guide_fit.json
+#                      reads it through fit_from), zmin and zmax (THE FLOOR,
+#                      Story 4.24: the split holds a position only with
+#                      zmin <= z < zmax; one outside keeps the area's own
+#                      name, coarse or not; a side is absent where the fit
+#                      has no floor cut there), origin
 #                      and cell (the grid's top-left pixel and one cell's
-#                      size), columns and rows, source, and parts. All
-#                      the splits of one map lie on one grid: image, fit,
-#                      origin, cell, columns and rows are the same on each
-#                      (Story 4.18), which the loader refuses otherwise. A part
+#                      size), columns and rows, source, and parts. ONE GRID
+#                      PER FLOOR (Story 4.18, per floor since Story 4.24):
+#                      the splits of one map whose floors overlap are on one
+#                      floor, so zmin and zmax must be the same on them, and
+#                      so must image, fit, origin, cell, columns and rows;
+#                      the loader refuses otherwise. Splits on floors that do
+#                      not overlap may have different grids: Nuke's guide
+#                      draws its lower floor apart, so the upper floor (zmin
+#                      -470: the yard, lobby) and the lower (zmax -470: B
+#                      site, ramp's lower part, tunnels, control) each have
+#                      their own fit. A position is looked up on its area's
+#                      split, and only if that split's floor holds its z.
+#                      An area has one split, so an area that
+#                      spans both floors is split on one, and its positions
+#                      on the other keep its own callout. A part
 #                      is one of his places: callout, junction,
 #                      junction_source, confidence, source and note as an
 #                      area's, plus cells (half-cells he named, e.g. K13b:
@@ -170,8 +183,9 @@
 #                      form says.
 #                      THE BAND RULE, a lead decision of 2026-09-29 (Story
 #                      4.23) that SUPERSEDES Story 4.20's two-level rule and
-#                      keeps its numbers. The live ticks of the map inside a
-#                      band's regions are sorted by z and cut at the FEWEST
+#                      keeps its numbers. The live ticks of the map ON THE
+#                      SPLIT'S FLOOR (zmin <= z < zmax, Story 4.24) inside
+#                      a band's regions are sorted by z and cut at the FEWEST
 #                      of their largest gaps such that each cut gap is at
 #                      least 36 units (twice the game's 18-unit step, so no
 #                      walking crosses it) and at least 1.5 times the largest
@@ -191,8 +205,18 @@
 #                      the levels apart (the source names the game area of
 #                      each level) and rests on his words where they do not.
 #                      A place he names by height that fails the rule gets
-#                      no band, and its source says so. All of it is
-#                      re-derived by -m archive.
+#                      no band, and its source says so -- with one
+#                      exception, THE CARRIED BAND (Story 4.24, the lead's
+#                      decision of 2026-09-29): when he names the same
+#                      level in a half-cell whose ticks the rule cannot
+#                      separate, the band is measured on the half-cells
+#                      the rule admits and carried to the others by his
+#                      word; the source says so ('the band is carried to
+#                      <half-cells> by his word'), and the carried
+#                      half-cells are his words (Nuke's hattuhylly and
+#                      hutLadder in I11a). And A HALF-OPEN BAND WHOSE EDGE
+#                      IS A CLOSED BAND'S EDGE is read at the closed band's
+#                      measurement. All of it is re-derived by -m archive.
 #                      words is his phrase the region is read from. A
 #                      position takes the FIRST part in table order whose
 #                      half-cell or region (and band) holds it -- table order
@@ -275,6 +299,108 @@ junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bo
 neighbours = 4
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_nuke table: BombsiteB = B site"
+note = "His broad word for the site of the lower floor, so it is not coarse. Since Story 4.24 the split below names his finer places inside it; every other position, and every rule row, stays b site."
+
+[de_nuke.BombsiteB.split]
+image = "kartta12_sivu16_748x749.png"
+zmax = -470.0
+origin = [21.0, 21.0]
+cell = [43.0, 42.2]
+columns = "ABCDEFGHIJKLMNOP"
+rows = 17
+source = "The guide grid of the Nuke yard's split (Story 4.17), laid on the guide's drawing of the lower floor, which the guide draws apart: one grid per floor (Story 4.24, spec-4-24-nuke-b-site-and-hattuhylly.md decision 1). The fit's scale is the upper floor's; its offset comes from three anchors, B SITE, TUNNELS and DECON, made by nuke-piha-skriptit/banch.py and kept unrounded in nuke-piha-skriptit/nuke-lower-fit.npy, the fit nuke-piha-skriptit/pics.py drew nuke-bsite-puoliruudut-2026-09-29.png with, the picture he answered on. The floor is z below -470 (zmax): the ramp's landing at z -480, in his C2b and D2a, lies on it, and the slope above it is on the upper floor (bsite-taulukot-2026-09-29.md section 1, ambiguity 1). Checked against his words (bsite-taulukot-2026-09-29.md section 2): it meets them at the far ends, secret, tunnels and ramp, and misses b rafters' right and bottom legs by a few pixels; kept by the lead's decision 2. His answer is vastaus-lobby-bsite-2026-09-29.md section 'Verbatim' with his clarifications, read as tables in bsite-taulukot-2026-09-29.md, and built by the lead's decisions of 2026-09-29 on bsite-taulukot-2026-09-29.md. A split of an area that is not coarse (Story 4.23 form): vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'No B site on laaja käsite joka varmaan käsittää alhaalta aika paljon' -- b site is his broad word and the area's own callout, so the parts are finer places inside it, a position no part holds stays b site, and the nearest rule does not apply. His places on this split, from his quoted words: b site, b rafters, ramppi vasen, ramppi oikea, dark, liuska, vp-plant, b-safe-plant, b-tuplat-plant, laatikko."
+
+[de_nuke.BombsiteB.split.fit]
+sx = 0.10037037037037035
+sy = 0.10148148148148145
+bx = 85.86003841447241
+by = 141.40863561559613
+
+[[de_nuke.BombsiteB.split.parts]]
+callout = "b rafters"
+regions = [
+  { cell = "D4d", z = [-676.98, inf], words = "tuon D4d sarakkeen oikeaa reunaa noin puoliruudun kokoisena D6d riviin saakka" },
+  { cell = "D5b", z = [-676.98, inf], words = "tuon D4d sarakkeen oikeaa reunaa noin puoliruudun kokoisena D6d riviin saakka" },
+  { cell = "D5d", z = [-676.98, inf], words = "tuon D4d sarakkeen oikeaa reunaa noin puoliruudun kokoisena D6d riviin saakka" },
+  { cell = "D6b", z = [-676.98, inf], words = "tuon D4d sarakkeen oikeaa reunaa noin puoliruudun kokoisena D6d riviin saakka" },
+  { cell = "D6c", y = [0.5, 1.0], z = [-676.98, inf], words = "D6c,D6d rivillä näiden ruutujen alapuoliskossa" },
+  { cell = "C6d", y = [0.5, 1.0], z = [-676.98, inf], words = "Rafteri kiertää koko siten ympäri" },
+  { cell = "C4c", x = [0.6666666666666666, 1.0], z = [-676.98, inf], words = "C6c:n oikea kolmannes ruudusta taas ylöspäin takaisin kohti ramppia kulkien tämän sarakkeen kaikkien ruutujen oikeassa kolmanneksessa ruutuun C4c saakka" },
+  { cell = "C5a", x = [0.6666666666666666, 1.0], z = [-676.98, inf], words = "C6c:n oikea kolmannes ruudusta taas ylöspäin takaisin kohti ramppia kulkien tämän sarakkeen kaikkien ruutujen oikeassa kolmanneksessa ruutuun C4c saakka" },
+  { cell = "C5c", x = [0.6666666666666666, 1.0], z = [-676.98, inf], words = "C6c:n oikea kolmannes ruudusta taas ylöspäin takaisin kohti ramppia kulkien tämän sarakkeen kaikkien ruutujen oikeassa kolmanneksessa ruutuun C4c saakka" },
+  { cell = "C6a", x = [0.6666666666666666, 1.0], z = [-676.98, inf], words = "C6c:n oikea kolmannes ruudusta taas ylöspäin takaisin kohti ramppia kulkien tämän sarakkeen kaikkien ruutujen oikeassa kolmanneksessa ruutuun C4c saakka" },
+  { cell = "C6c", x = [0.6666666666666666, 1.0], z = [-676.98, inf], words = "C6c:n oikea kolmannes ruudusta taas ylöspäin takaisin kohti ramppia kulkien tämän sarakkeen kaikkien ruutujen oikeassa kolmanneksessa ruutuun C4c saakka" },
+]
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions): the part holds positions of BombsiteB"
+confidence = "inferred"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'kulkee tuon D4d sarakkeen oikeaa reunaa noin puoliruudun kokoisena D6d riviin saakka ja kiertää siellä D6c,D6d rivillä näiden ruutujen alapuoliskossa' and his words: 'Rafteri kiertää koko siten ympäri ja lähtee saraketta C6c:n oikea kolmannes ruudusta taas ylöspäin takaisin kohti ramppia kulkien tämän sarakkeen kaikkien ruutujen oikeassa kolmanneksessa ruutuun C4c saakka' and his words: 'Täytyy muistaa, että rafter täällä B:llä on myös lattian päällä siten, että kaksi pelaajaa voivat seistä täysin päällekäin rafterilla ja sen alla' and his words: 'Rafterissa on myös kaide ja kaiteen päällä pystyy myös seisomaan jolloin z koordinaatti voi olla hieman korkeampi'; his name, vastaus-lobby-bsite-2026-09-29.md section 'His answers to the four clarifications, same day', his words: 'Joo käytetään b rafters' -- a place of its own, not A's rafters. The ring of the rafter round the site, read by the lead's decisions 3, 4, 6 and 7 of 2026-09-29 (bsite-taulukot-2026-09-29.md): read 'tuon D4d sarakkeen oikeaa reunaa noin puoliruudun kokoisena' as D4d, D5b, D5d, D6b -- the right leg, his column read as its half-cells, a strip one half-cell wide along the site's right edge, his 'noin puoliruudun kokoisena' read literally as whole half-cells, the band telling the rafter from the floor beneath; the bottom leg is D6c's lower half, his 'D6c,D6d rivillä näiden ruutujen alapuoliskossa', and the lead's region C6d from 'Rafteri kiertää koko siten ympäri' -- C6d's lower half, the ring closed between D6c and C6c, a region his words name no half-cell for, which moves 3 BombsiteB positions, so b rafters is inferred until he confirms it and prints marked (the 4.20 confidence rule; the lead's decision 6); read 'C6c:n oikea kolmannes ruudusta taas ylöspäin takaisin kohti ramppia kulkien tämän sarakkeen kaikkien ruutujen oikeassa kolmanneksessa ruutuun C4c' as C6c, C6a, C5c, C5a, C4c -- the left leg, his right third, literal. Height band measured, not guessed (the band rule of the callouts.toml header on the archive, 2026-09-29; bsite-taulukot-2026-09-29.md section 3): the live ticks of the lower floor inside b rafters' regions (169) fall in two levels, the largest gap running from -713.98 to -639.97 (74.02 units; 91 below, 78 above); the band edge -676.98 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (the gap at least 36 units and at least 1.5 times the second-largest gap, 40.44 units from -765.97 to -725.53) (re-derived under -m archive). The upper level is the game's BombsiteB (75 of 78 ticks above, with Observation 3), the lower the game's BombsiteB (72 of 91 below, with Tunnels 19); one game area holds both, so the direction rests on his words, 'päällekäin rafterilla ja sen alla': b rafters is the upper level, the site floor beneath it the lower. The rail, 'kaiteen päällä ... hieman korkeampi' (z -611 to -576), is no level of its own -- the gap from -635.97 to -610.70 is 25.27 units, under 36 -- so it is inside the upper level, as his words keep it the rafter. The plant silo's top holds no position and he names it nothing, so it has no band. KNOWN LIMIT, D6d: his 'D6d riviin saakka' and 'D6c,D6d' name D6d, and it is left out, not read away: D6d fails the band rule -- its box and stair level (z -718 to -673) fills the gap, and the ring with D6d shows one level -- so D6d carries no b rafters region, and its 16 BombsiteB positions on the rafter are laatikko (the lead's decision 5). KNOWN LIMIT, the bottom leg: the rafter's bottom leg lies 0.4 to 1.1 px below the row 6/7 line, in the top of C7b, D7a and D7b (53 BombsiteB positions at the rafter's height), not in his lower half of D6c and D6d; read literally, they stay b site (the lead's decision 4), a question for him. 9 more rafter-level positions lie just left of the right third of C4c, C5a, C5c and C6c (fx 0.55 to 0.67) and stay b site (decision 7). Junction basis: holds positions of BombsiteB"
+
+[[de_nuke.BombsiteB.split.parts]]
+callout = "ramppi vasen"
+cells = ["C3d"]
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions): the part holds positions of BombsiteB"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'C3d on ramppi vasen': the left side of the fork where the ramp comes down, his 'Tässä on kartassa jakauma'. The same place as the part of Ramp's split. Junction basis: holds positions of BombsiteB"
+
+[[de_nuke.BombsiteB.split.parts]]
+callout = "ramppi oikea"
+cells = ["D3d"]
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions): the part holds positions of BombsiteB"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'D3d on ramppi oikea': the right side of the fork where the ramp comes down, his 'Tässä on kartassa jakauma'. The same place as the part of Ramp's split. Junction basis: holds positions of BombsiteB"
+
+[[de_nuke.BombsiteB.split.parts]]
+callout = "dark"
+cells = ["D4d"]
+broad = true
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions): the part holds positions of BombsiteB"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'pieni alue joka on B lattian tasolla jota nimitetään darkiksi. Se on ruudussa D4d ja ehkä hieman D5b, mutta lähinnä D4d'; read 'D4d ja ehkä hieman D5b, mutta lähinnä D4d' as D4d -- his hedged 'ehkä hieman D5b' left out, the lead's decision 10 of 2026-09-29, so D5b's 4 floor positions stay b site. On the site floor beneath b rafters, so broad: it yields to b rafters in D4d, his words: 'Täytyy muistaa, että rafter täällä B:llä on myös lattian päällä siten, että kaksi pelaajaa voivat seistä täysin päällekäin rafterilla ja sen alla' (the lead's decision 9). Junction basis: holds positions of BombsiteB"
+
+[[de_nuke.BombsiteB.split.parts]]
+callout = "liuska"
+cells = ["C4d", "D4c", "C5b", "D5a"]
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions): the part holds positions of BombsiteB"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'Ruuduista C4d ja D4c alkaa sitten tuo darkin vieressä oleva liuska/ramppi (preferoin ehkä liuska nimitystä). Tämä laskeutuu alas B lattia tasolle kaltevasti noin C5b ja D5a ruuduissa': the slope beside dark, from where it starts at the ramp's height to where it reaches the site floor; a slope makes no level, so no band. Junction basis: holds positions of BombsiteB"
+
+[[de_nuke.BombsiteB.split.parts]]
+callout = "vp-plant"
+cells = ["C5d"]
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions): the part holds positions of BombsiteB"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'VP plant positio on C5d ruudussa'; his names, vastaus-lobby-bsite-2026-09-29.md section 'His answers to the four clarifications, same day', his words: 'vp-plant, b-safe-plant, b-tuplat-plant. Nuo voisi olla hyvä'. Junction basis: holds positions of BombsiteB"
+
+[[de_nuke.BombsiteB.split.parts]]
+callout = "b-safe-plant"
+cells = ["D6c"]
+broad = true
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions): the part holds positions of BombsiteB"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'safe plant positio on noin siilon taakse ruudussa D6c'; his names, vastaus-lobby-bsite-2026-09-29.md section 'His answers to the four clarifications, same day', his words: 'vp-plant, b-safe-plant, b-tuplat-plant. Nuo voisi olla hyvä'. On the site floor beneath b rafters' lower half of D6c, so broad: it yields to b rafters there, his words: 'Täytyy muistaa, että rafter täällä B:llä on myös lattian päällä siten, että kaksi pelaajaa voivat seistä täysin päällekäin rafterilla ja sen alla' (the lead's decision 9). Junction basis: holds positions of BombsiteB"
+
+[[de_nuke.BombsiteB.split.parts]]
+callout = "b-tuplat-plant"
+cells = ["D6a"]
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions): the part holds positions of BombsiteB"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'plant tuplinne on noin D6a'; his names, vastaus-lobby-bsite-2026-09-29.md section 'His answers to the four clarifications, same day', his words: 'vp-plant, b-safe-plant, b-tuplat-plant. Nuo voisi olla hyvä'. Junction basis: holds positions of BombsiteB"
+
+[[de_nuke.BombsiteB.split.parts]]
+callout = "laatikko"
+cells = ["D6d"]
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions): the part holds positions of BombsiteB"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'se site kulkee tässä rafterin alla ruutuun D6d asti, jossa on sellainen laatikko josta voi hyppiä raftereille tai piiloutua sen taakse'. It holds D6d's 16 BombsiteB positions on the rafter too, b rafters' known limit (the band rule refuses D6d). The same place as the part of Tunnels' split. Junction basis: holds positions of BombsiteB"
 
 [de_nuke.CTSpawn]
 callout = "ct spawn"
@@ -312,11 +438,11 @@ source = "vastaukset-2026-09-29.md section 'His answer on the game's `Crane`, sa
 note = "Three game areas, one callout: merged with Catwalk and Rafters."
 
 [de_nuke.Decon]
-callout = "sinkku"
+callout = "alakerran sinkku"
 junction = false
 neighbours = 3
 confidence = "stated"
-source = "the first route model (reittimalli-<owner>.md) Nuke 2026-09-03: 'Decon = sinkku' (the guide's DECON in calloutit.md is the same place under the guide's name)"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'kohti alakerran sinkkua (deacon, preferoin alakerran sinkku)': his preferred name, renamed from sinkku by the lead's decision 19 of 2026-09-29 (the first route model (reittimalli-<owner>.md) Nuke 2026-09-03: 'Decon = sinkku'; the guide's DECON in calloutit.md is the same place under the guide's name). Whether an upstairs sinkku is what 'alakerran' tells it apart from is a question for him."
 
 [de_nuke.Garage]
 callout = "garage"
@@ -369,11 +495,12 @@ note = "His word for the whole room (vastaukset-2026-09-29.md section 'Verbatim'
 
 [de_nuke.Lobby.split]
 image = "kartta12_sivu16_748x749.png"
+zmin = -470.0
 origin = [21.0, 21.0]
 cell = [43.0, 42.2]
 columns = "ABCDEFGHIJKLMNOP"
 rows = 17
-source = "The guide grid of the Nuke yard's split (Story 4.17), which every split of de_nuke shares; no zmin, because lobby lies on the upper floor the fit draws. A split of an area that is not coarse (Story 4.23, callouts.toml header): lobby is his word for the whole room, and the parts below are finer places inside it, so a position no part holds stays lobby and the nearest rule does not apply. His levels are drawn from eple, the lobby entrance, in vastaukset-2026-09-29.md section 'Verbatim', answer 2: ground level (Lobby maataso), the hattuhylly (hat shelf) on both sides, and the ladder from the hut entrance to the roof doorway and the T roof; measured in nuke-lobby-z-mitattu-2026-09-29.md, and by the band rule of the callouts.toml header on the archive, 2026-09-29. The 40 Lobby ticks at z -400 to -340, the first steps up in I11c, H11a, H11b, H11d and H10d (nuke-lobby-z-mitattu-2026-09-29.md), are not named by him and stay lobby."
+source = "The guide grid of the Nuke yard's split (Story 4.17), which every split of the upper floor of de_nuke shares; zmin -470, the upper floor the fit draws (Story 4.24: one grid per floor; no Lobby position lies below -416, so the floor changes no position). A split of an area that is not coarse (Story 4.23, callouts.toml header): lobby is his word for the whole room, and the parts below are finer places inside it, so a position no part holds stays lobby and the nearest rule does not apply. His levels are drawn from eple, the lobby entrance, in vastaukset-2026-09-29.md section 'Verbatim', answer 2: ground level (Lobby maataso), the hattuhylly (hat shelf) on both sides, and the ladder from the hut entrance to the roof doorway and the T roof; measured in nuke-lobby-z-mitattu-2026-09-29.md, and by the band rule of the callouts.toml header on the archive, 2026-09-29. The 40 Lobby ticks at z -400 to -340, the first steps up in I11c, H11a, H11b, H11d and H10d (nuke-lobby-z-mitattu-2026-09-29.md), are not named by him and stay lobby."
 
 [de_nuke.Lobby.split.fit]
 sx = 0.10037037037037035
@@ -384,23 +511,24 @@ by = 360.0
 [[de_nuke.Lobby.split.parts]]
 callout = "hattuhylly"
 regions = [
-  { cell = "I10c", z = [-332.6, -216.29], words = "siinä on hattuhylly välissä" },
-  { cell = "I11c", z = [-332.6, -216.29], words = "siinä on hattuhylly välissä" },
-]
-junction = true
-junction_source = "holds positions of Lobby, whose entry is a junction: the first route model (reittimalli-<owner>.md) Nuke T side, his claims 'Lobbystä ovelta tai hutista A:lle' and 'Lobbystä rampille'"
-confidence = "inferred"
-source = "vastaukset-2026-09-29.md section 'Verbatim', answer 2, his words: 'Sen takia että siellä on eri z arvoja vai?' and his words: 'ne alkavat aivan hut sisäänkäynnin kohdalta ja siinä on hattuhylly välissä, minne pääsee poistumalla tikkaista siinä': the mid level of his sketch, between the lobby floor and the roof doorway, reached by stepping off the ladder, on both sides. His words name no half-cell: read 'hattuhylly välissä' as I10c, I11c -- the half-cells where the lead measured the mid level near z -290 (nuke-lobby-z-mitattu-2026-09-29.md) -- a reading of the lead's that moves 28 Lobby positions, so inferred until he confirms it (the 4.20 confidence rule). Height band measured, not guessed (the band rule of the callouts.toml header on the archive, 2026-09-29; the levels in nuke-lobby-z-mitattu-2026-09-29.md): the live ticks of the map inside I10c and I11c (549) fall in three levels. The two largest gaps are cut, from -377.23 to -287.97 (89.27 units) and from -260.61 to -171.97 (88.64), each at least 36 units and at least 1.5 times the largest gap not cut (-171.97 to -128.08, 43.89 units); the levels hold 486, 28 and 35 ticks. The band edges -332.6 and -216.29 are the two midpoints, to two decimals (re-derived under -m archive). The largest gap alone would not do: it is only 1.01 times the second, so the two-level rule refuses the place. The levels, bottom to top, are the game's Lobby (242 of 486, with Squeaky 158), Lobby (28 of 28) and Rafters (15 of 35, with Roof 14 and Crane 6); hattuhylly is the middle level. Which of the lower two is his shelf rests on his words, since one game area holds both. I10c alone shows the same three levels; I11c alone fails the rule (its top level holds one tick). Measured with I11a too, the rule gives only two levels (hutLadder's source), so the shelf on the ladder's other side, in I11a, is not in this band: a known limit. Junction basis: holds positions of Lobby"
-
-[[de_nuke.Lobby.split.parts]]
-callout = "hutLadder"
-regions = [
-  { cell = "I11a", z = [-337.36, inf], words = "tikkaat hutLadder I11a ja z koordinaatti paljastaa kun niitä kiivetään" },
+  { cell = "I10c", z = [-332.6, -216.29], words = "hattuhylly I10c, I11a, I11c" },
+  { cell = "I11a", z = [-332.6, -216.29], words = "hattuhylly I10c, I11a, I11c" },
+  { cell = "I11c", z = [-332.6, -216.29], words = "hattuhylly I10c, I11a, I11c" },
 ]
 junction = true
 junction_source = "holds positions of Lobby, whose entry is a junction: the first route model (reittimalli-<owner>.md) Nuke T side, his claims 'Lobbystä ovelta tai hutista A:lle' and 'Lobbystä rampille'"
 confidence = "stated"
-source = "nuke-piha-vastaus-2026-09-27.md, his words: 'lobbyn sisältä katolle menevät tikkaat hutLadder I11a ja z koordinaatti paljastaa kun niitä kiivetään': the ladder inside lobby up to the roof, in I11a, told apart by height while it is climbed; confirmed as the ladder from the hut entrance to the roof doorway and the T roof by vastaukset-2026-09-29.md section 'Verbatim', answer 2. Height band measured, not guessed (the band rule of the callouts.toml header on the archive, 2026-09-29; the levels in nuke-lobby-z-mitattu-2026-09-29.md): the live ticks of the map inside I11a (201) fall in two levels, the largest gap running from -382.81 to -291.91 (150 below, 51 above); the band edge -337.36 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap: 90.91 against 37.42) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's Crane (28 of 51 ticks above, with Lobby 18 and Roof 5), the lower the game's Lobby (136 of 150 below, with Hut 14); the ladder is the upper level, rising towards the roof doorway. The game's Crane is his rafters since 2026-09-29, so the level above the edge is dominated by the rafters beam's height (z -127.97); the split renames only Lobby positions, so the band names the 18 Lobby ticks among them hutLadder and leaves Crane, Roof and Hut their own names. The rule, extended to several levels in Story 4.23, still gives I11a two levels and not three: its largest gap alone meets the rule, and the next, from -254.02 to -216.59 (37.42 units), is not 1.5 times the largest gap that would stay uncut (32.00, from -127.97 to -95.97), so the ladder above the shelf is not a level of its own. The Lobby ticks above the edge include 12 at the shelf's height (-291.91 to -261.56); I11a's own levels do not separate them, so they stay hutLadder and not hattuhylly -- in I11a every Lobby position off the ground is hutLadder, as his 'kun niitä kiivetään' says. KNOWN LIMIT: 7 of those 12 lie exactly at -287.97, the shelf's floor, and his sketch puts the shelf on both sides of the ladder, so they are probably the shelf. Measured on I10c, I11c and I11a together (750 live ticks), the rule gives two levels and not three: the ladder's ticks fill the shelf's upper gap, the largest gap alone (-377.23 to -291.91, 85.33 units) is cut, and the next (37.42) is not 1.5 times 22.69 -- so no band separates the shelf in I11a, and hattuhylly stays I10c and I11c. Junction basis: holds positions of Lobby"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'hattuhylly I10c, I11a, I11c. Tikkaat menevät seinässä ja hattuhylly on taso noissa kaikissa kolmessa ruudussa jolla voi seistä': the shelf is one level in all three half-cells, his answer to the reading of Story 4.23 (I10c and I11c, the lead's, inferred until then), so stated. His sketch, vastaukset-2026-09-29.md section 'Verbatim', answer 2, his words: 'Sen takia että siellä on eri z arvoja vai?' and his words: 'ne alkavat aivan hut sisäänkäynnin kohdalta ja siinä on hattuhylly välissä, minne pääsee poistumalla tikkaista siinä': the mid level between the lobby floor and the roof doorway, reached by stepping off the ladder, on both sides. Height band measured, not guessed (the band rule of the callouts.toml header on the archive, 2026-09-29; the levels in nuke-lobby-z-mitattu-2026-09-29.md): the live ticks of the map inside I10c and I11c (549) fall in three levels. The two largest gaps are cut, from -377.23 to -287.97 (89.27 units) and from -260.61 to -171.97 (88.64), each at least 36 units and at least 1.5 times the largest gap not cut (-171.97 to -128.08, 43.89 units); the levels hold 486, 28 and 35 ticks. The band edges -332.6 and -216.29 are the two midpoints, to two decimals (re-derived under -m archive). The largest gap alone would not do: it is only 1.01 times the second, so the two-level rule refuses the place. The levels, bottom to top, are the game's Lobby (242 of 486, with Squeaky 158), Lobby (28 of 28) and Rafters (15 of 35, with Roof 14 and Crane 6); hattuhylly is the middle level. Which of the lower two is his shelf rests on his words, since one game area holds both. I10c alone shows the same three levels; I11c alone fails the rule (its top level holds one tick). So the band is carried to I11a by his word (the lead's decision 26 of 2026-09-29): measured on I10c, I11c and I11a together the rule gives two levels and not three -- the ladder's ticks fill the shelf's upper gap (hutLadder's source) -- so the band is measured on the two half-cells the rule admits, and his words make the shelf one level across all three. In I11a it names 14 Lobby ticks (7 of them at the shelf's floor, z -287.97), which were hutLadder before Story 4.24 (bsite-taulukot-2026-09-29.md ambiguity 26). KNOWN LIMIT: 2 of the 14 are the ladder and not the shelf -- z -254.02 and -216.59, above the shelf's floor and under its upper edge -216.29 -- because the band measured on I10c and I11c is carried to I11a whole, and I11a's own ticks cannot move its edge. Junction basis: holds positions of Lobby"
+
+[[de_nuke.Lobby.split.parts]]
+callout = "hutLadder"
+regions = [
+  { cell = "I11a", z = [-216.29, inf], words = "tikkaat hutLadder I11a ja z koordinaatti paljastaa kun niitä kiivetään" },
+]
+junction = true
+junction_source = "holds positions of Lobby, whose entry is a junction: the first route model (reittimalli-<owner>.md) Nuke T side, his claims 'Lobbystä ovelta tai hutista A:lle' and 'Lobbystä rampille'"
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md, his words: 'lobbyn sisältä katolle menevät tikkaat hutLadder I11a ja z koordinaatti paljastaa kun niitä kiivetään': the ladder inside lobby up to the roof, in I11a, told apart by height while it is climbed; confirmed as the ladder from the hut entrance to the roof doorway and the T roof by vastaukset-2026-09-29.md section 'Verbatim', answer 2. Since Story 4.24 the ladder is I11a above the shelf, by his 'hattuhylly I10c, I11a, I11c ... taso noissa kaikissa kolmessa ruudussa jolla voi seistä' (vastaus-lobby-bsite-2026-09-29.md section 'Verbatim'; the lead's decision 26 of 2026-09-29). Height band measured, not guessed (the band rule of the callouts.toml header on the archive, 2026-09-29; the levels in nuke-lobby-z-mitattu-2026-09-29.md): the band is carried to I11a by his word, as hattuhylly's is: its lower end is the shelf's upper edge, -216.29, the midpoint of the gap from -260.61 to -171.97 measured on I10c and I11c (hattuhylly's source); I11a's own ticks cannot give it, because the ladder fills the gap (measured on I11a alone the rule cuts only the gap from -382.81 to -291.91, the old edge -337.36 of Story 4.23). hutLadder is the upper level: the ladder above the shelf, rising towards the roof doorway. In I11a it names 4 Lobby ticks (z -194.66 to -93.81), where it named 18 before Story 4.24: the 14 at the shelf's height are hattuhylly now. The split renames only Lobby positions, so the game's Crane (his rafters), Roof and Hut keep their own names at those heights. Junction basis: holds positions of Lobby"
 
 [de_nuke.LockerRoom]
 callout = "lockers"
@@ -423,6 +551,32 @@ junction = false
 neighbours = 3
 confidence = "stated"
 source = "project memory nuken-aluenimet; the first route model (reittimalli-<owner>.md) 2026-09-12: the game's Observation is his control (called 'ikkuna' in the first route model (reittimalli-<owner>.md) 2026-09-03)"
+note = "His control, the room. Since Story 4.24 the split below names his controllin portaat inside it; every other position, and every rule row, stays control."
+
+[de_nuke.Observation.split]
+image = "kartta12_sivu16_748x749.png"
+zmax = -470.0
+origin = [21.0, 21.0]
+cell = [43.0, 42.2]
+columns = "ABCDEFGHIJKLMNOP"
+rows = 17
+source = "The guide grid of the Nuke yard's split (Story 4.17), laid on the guide's drawing of the lower floor, which the guide draws apart: one grid per floor (Story 4.24, spec-4-24-nuke-b-site-and-hattuhylly.md decision 1). The fit's scale is the upper floor's; its offset comes from three anchors, B SITE, TUNNELS and DECON, made by nuke-piha-skriptit/banch.py and kept unrounded in nuke-piha-skriptit/nuke-lower-fit.npy, the fit nuke-piha-skriptit/pics.py drew nuke-bsite-puoliruudut-2026-09-29.png with, the picture he answered on. The floor is z below -470 (zmax): the ramp's landing at z -480, in his C2b and D2a, lies on it, and the slope above it is on the upper floor (bsite-taulukot-2026-09-29.md section 1, ambiguity 1). Checked against his words (bsite-taulukot-2026-09-29.md section 2): it meets them at the far ends, secret, tunnels and ramp, and misses b rafters' right and bottom legs by a few pixels; kept by the lead's decision 2. His answer is vastaus-lobby-bsite-2026-09-29.md section 'Verbatim' with his clarifications, read as tables in bsite-taulukot-2026-09-29.md, and built by the lead's decisions of 2026-09-29 on bsite-taulukot-2026-09-29.md. A split of an area that is not coarse (Story 4.23 form): vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'Controllia on E4c,E5a,E4d,E5b ja pieni osa ehkä viidennes F4c,F5a ruutujen vasemmasta reunasta' -- control is the room and the area's own callout, so a position no part holds stays control. His places on this split, from his quoted words: control, controllin portaat."
+
+[de_nuke.Observation.split.fit]
+sx = 0.10037037037037035
+sy = 0.10148148148148145
+bx = 85.86003841447241
+by = 141.40863561559613
+
+[[de_nuke.Observation.split.parts]]
+callout = "controllin portaat"
+regions = [
+  { cell = "E5b", y = [0.6666666666666666, 1.0], words = "Ruudun E5b ala kolmannesta alkaa controllin portaat" },
+  { cell = "E5d", y = [0.0, 0.6666666666666666], words = "Ne jatkuvat laskevasti ruudun E5d ala kolmannekseen" },
+]
+junction = false
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'Ruudun E5b ala kolmannesta alkaa controllin portaat alemmas B lattian tasolle. Ne jatkuvat laskevasti ruudun E5d ala kolmannekseen jolloin B lattian taso on suurinpiirtein saavutettu': the stairs from E5b's bottom third down E5d to its bottom third, which is tuplaovet ('E5d (alakolmannes)'); a slope makes no level, so no band. Only in this split: its 2 Tunnels positions stay tunnels, because one callout has one junction and Tunnels' is one (the lead's decision 16). Junction basis: holds positions of Observation"
 
 [de_nuke.Outside]
 callout = "outside"
@@ -436,12 +590,12 @@ note = "One game area holding several of his callouts. Since Story 4.17 its posi
 
 [de_nuke.Outside.split]
 image = "kartta12_sivu16_748x749.png"
-zmin = -500.0
+zmin = -470.0
 origin = [21.0, 21.0]
 cell = [43.0, 42.2]
 columns = "ABCDEFGHIJKLMNOP"
 rows = 17
-source = "nuke-piha-vastaus-2026-09-27.md, the half-cell answer and 'FINAL table (source for Story 4.17)': the yard divided half-cell by half-cell on the guide image's own grid (16 columns A-P, rows 1-17, origin at image pixel (21, 21), one cell 43 x 42.2 px, half-cells a top-left, b top-right, c bottom-left, d bottom-right), and 'Every other half-cell holding Outside ticks takes its nearest named half-cell's callout (his: liitä loput lähimpään)'. The fit and zmin are koordinaatit-mitattu-2026-09-27.md's (Story 4.16), the fit unrounded (sx 0.1004 and sy 0.1015 there) as nuke-piha-skriptit/nk8.py drew the picture he named the half-cells on: Nuke's image draws its lower floor apart, so only the upper floor is fitted."
+source = "nuke-piha-vastaus-2026-09-27.md, the half-cell answer and 'FINAL table (source for Story 4.17)': the yard divided half-cell by half-cell on the guide image's own grid (16 columns A-P, rows 1-17, origin at image pixel (21, 21), one cell 43 x 42.2 px, half-cells a top-left, b top-right, c bottom-left, d bottom-right), and 'Every other half-cell holding Outside ticks takes its nearest named half-cell's callout (his: liitä loput lähimpään)'. The fit is koordinaatit-mitattu-2026-09-27.md's (Story 4.16), and so was zmin, -500 until Story 4.24 made it -470, the floor cut between Nuke's two grids (bsite-taulukot-2026-09-29.md ambiguity 1, the lead's decision 1): no Outside position lies below -416, so the move changes no position. The fit is unrounded (sx 0.1004 and sy 0.1015 there) as nuke-piha-skriptit/nk8.py drew the picture he named the half-cells on: Nuke's image draws its lower floor apart, so only the upper floor is fitted."
 
 [de_nuke.Outside.split.fit]
 sx = 0.10037037037037035
@@ -634,6 +788,38 @@ junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'radi
 neighbours = 6
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_nuke table: Ramp = ramppi; calloutit.md guide: RAMP"
+note = "His word for all of it, so it is not coarse. Since Story 4.24 the split below names his finer places on the ramp's lower part; every other position, and every rule row, stays ramp."
+
+[de_nuke.Ramp.split]
+image = "kartta12_sivu16_748x749.png"
+zmax = -470.0
+origin = [21.0, 21.0]
+cell = [43.0, 42.2]
+columns = "ABCDEFGHIJKLMNOP"
+rows = 17
+source = "The guide grid of the Nuke yard's split (Story 4.17), laid on the guide's drawing of the lower floor, which the guide draws apart: one grid per floor (Story 4.24, spec-4-24-nuke-b-site-and-hattuhylly.md decision 1). The fit's scale is the upper floor's; its offset comes from three anchors, B SITE, TUNNELS and DECON, made by nuke-piha-skriptit/banch.py and kept unrounded in nuke-piha-skriptit/nuke-lower-fit.npy, the fit nuke-piha-skriptit/pics.py drew nuke-bsite-puoliruudut-2026-09-29.png with, the picture he answered on. The floor is z below -470 (zmax): the ramp's landing at z -480, in his C2b and D2a, lies on it, and the slope above it is on the upper floor (bsite-taulukot-2026-09-29.md section 1, ambiguity 1). Checked against his words (bsite-taulukot-2026-09-29.md section 2): it meets them at the far ends, secret, tunnels and ramp, and misses b rafters' right and bottom legs by a few pixels; kept by the lead's decision 2. His answer is vastaus-lobby-bsite-2026-09-29.md section 'Verbatim' with his clarifications, read as tables in bsite-taulukot-2026-09-29.md, and built by the lead's decisions of 2026-09-29 on bsite-taulukot-2026-09-29.md. A split of an area that is not coarse (Story 4.23 form): vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'C2b,D2a ovat ramp calloutin asioita' and 'tämä on ramppia' -- ramp is his word for all of it and the area's own callout, so a position no part holds stays ramp. NOT BUILT: takaboksi. In his words: 'C2b,D2a ovat ramp calloutin asioita ja takaboksi rampilla on niissä ruuduissa' make C2b and D2a ramp's cells and takaboksi a box somewhere inside them, whose exact spot he has not given; reading both cells whole as takaboksi (bsite-taulukot-2026-09-29.md ambiguity 12) named 341 Ramp positions and was withdrawn by the lead on 2026-09-29, so C2b and D2a stay ramp until he says where the box is (a question for him). Ramp spans both floors; its split is on the lower one, and its positions on the upper floor (z -470 and above) keep ramp. His places on this split, from his quoted words: ramp, takaboksi, ramppi vasen, ramppi oikea."
+
+[de_nuke.Ramp.split.fit]
+sx = 0.10037037037037035
+sy = 0.10148148148148145
+bx = 85.86003841447241
+by = 141.40863561559613
+
+[[de_nuke.Ramp.split.parts]]
+callout = "ramppi vasen"
+cells = ["C3d"]
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'radiosta rampille' -- the part holds positions of Ramp"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'C3d on ramppi vasen': the left side of the fork where the ramp comes down, his 'Tässä on kartassa jakauma'. The same place as the part of BombsiteB's split. Junction basis: holds positions of Ramp"
+
+[[de_nuke.Ramp.split.parts]]
+callout = "ramppi oikea"
+cells = ["D3d"]
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'radiosta rampille' -- the part holds positions of Ramp"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'D3d on ramppi oikea': the right side of the fork where the ramp comes down, his 'Tässä on kartassa jakauma'. The same place as the part of BombsiteB's split. Junction basis: holds positions of Ramp"
 
 [de_nuke.Roof]
 callout = "t roof"
@@ -685,13 +871,89 @@ source = "project memory nuken-aluenimet; the first route model (reittimalli-<ow
 note = "Two game areas, one callout: merged with Control."
 
 [de_nuke.Tunnels]
-callout = "secret"
+callout = "tunnels"
 junction = true
-junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'pihalla kontaktilta ... secret'"
+junction_source = "vastaus-lobby-bsite-2026-09-29.md section 'His answers to the four clarifications, same day', his words: 'Siitä kääntyy E7c ruudusta backvents käytävä kohti sinkkua': the corridor divides at E7c, on towards secret and off towards back vents -- a point where the way divides (the header's junction rule). A junction before, as secret (alueomistus-pohja-2026-09-26.md de_nuke contact points: 'pihalla kontaktilta ... secret'), and the split does not remove it (Story 4.18)"
 neighbours = 6
 confidence = "stated"
-source = "the first route model (reittimalli-<owner>.md): 'Nuken Tunnels + Secret -> molemmat secret' (one word, two game areas)"
-note = "Two game areas, one callout: merged with Secret."
+source = "vastaus-lobby-bsite-2026-09-29.md section 'His answers to the four clarifications, same day', his words: 'Tarkoitin R7c:llä E7c:tä. Eli tuo käytävä tuplaovilta secrettiin, merkitty Tunnels kuvassa ja se callout käy minulle siihen': the corridor from tuplaovet to secret is his tunnels. Before 2026-09-29: the first route model (reittimalli-<owner>.md): 'Nuken Tunnels + Secret -> molemmat secret' (one word, two game areas); his clarification undoes that merge (the lead's decision 14 of 2026-09-29)."
+note = "Not coarse: tunnels is his callout for the corridor, which is the rest of the area. Since Story 4.24 the split below names his other places that lie in the game's Tunnels; every rule row stays tunnels. No longer merged with Secret."
+
+[de_nuke.Tunnels.split]
+image = "kartta12_sivu16_748x749.png"
+zmax = -470.0
+origin = [21.0, 21.0]
+cell = [43.0, 42.2]
+columns = "ABCDEFGHIJKLMNOP"
+rows = 17
+source = "The guide grid of the Nuke yard's split (Story 4.17), laid on the guide's drawing of the lower floor, which the guide draws apart: one grid per floor (Story 4.24, spec-4-24-nuke-b-site-and-hattuhylly.md decision 1). The fit's scale is the upper floor's; its offset comes from three anchors, B SITE, TUNNELS and DECON, made by nuke-piha-skriptit/banch.py and kept unrounded in nuke-piha-skriptit/nuke-lower-fit.npy, the fit nuke-piha-skriptit/pics.py drew nuke-bsite-puoliruudut-2026-09-29.png with, the picture he answered on. The floor is z below -470 (zmax): the ramp's landing at z -480, in his C2b and D2a, lies on it, and the slope above it is on the upper floor (bsite-taulukot-2026-09-29.md section 1, ambiguity 1). Checked against his words (bsite-taulukot-2026-09-29.md section 2): it meets them at the far ends, secret, tunnels and ramp, and misses b rafters' right and bottom legs by a few pixels; kept by the lead's decision 2. His answer is vastaus-lobby-bsite-2026-09-29.md section 'Verbatim' with his clarifications, read as tables in bsite-taulukot-2026-09-29.md, and built by the lead's decisions of 2026-09-29 on bsite-taulukot-2026-09-29.md. A split of an area that is not coarse (Story 4.23 form; the lead's decision 14 of 2026-09-29): tunnels is his callout for the corridor, vastaus-lobby-bsite-2026-09-29.md section 'His answers to the four clarifications, same day', his words: 'Eli tuo käytävä tuplaovilta secrettiin, merkitty Tunnels kuvassa ja se callout käy minulle siihen', and a part may not repeat the area's own callout, so the corridor is the rest of the area and no part: a position no part holds stays tunnels. The corridor, vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'Tämä käytävä jatkaa secretiä kohti E7a,E7c,E8a,-d (c ja d vain yläkolmannes ruudusta),F8a,F8b (vain vasen kolmannes ruudusta),F8c on jo secrettiä' and vastaus-lobby-bsite-2026-09-29.md section 'His answers to the four clarifications, same day', his words: 'F8a voisi olla jo tuota tunnels calloutia' -- E7a, E7c, E8a, E8b, the top third of E8c and E8d, F8a and the left third of F8b -- and the stairs up from tuplaovet (the bottom third of E6a, and E6c), by his 'tuo käytävä tuplaovilta secrettiin' (the lead's decision 15). Every Tunnels position no part holds lies there, but for 2 on control's stairs (E5b and E5d), which stay tunnels because controllin portaat is Observation's (the lead's decision 16), and 19 on the floor of D6b east of b rafters' right leg (z -768), which stay tunnels: reading them as b site, the site floor under the rafter, is the lead's and not his, and an inferred part named b site would mark his broad word on every line it prints (withdrawn by the lead on 2026-09-29; a question for him). His places on this split, from his quoted words: tunnels, tuplaovet, secret, alakerran sinkku, vent, back vents, laatikko."
+
+[de_nuke.Tunnels.split.fit]
+sx = 0.10037037037037035
+sy = 0.10148148148148145
+bx = 85.86003841447241
+by = 141.40863561559613
+
+[[de_nuke.Tunnels.split.parts]]
+callout = "tuplaovet"
+cells = ["E5c", "E6b", "F6a"]
+regions = [
+  { cell = "E6a", y = [0.0, 0.6666666666666666], words = "ruudussa E6a, sen alakolmannes varmaankin on se mistä portaat alkavat nousta" },
+  { cell = "E5d", y = [0.6666666666666666, 1.0], words = "E5d (alakolmannes)" },
+]
+junction = true
+junction_source = "his words 'Siitä kääntyy E7c ruudusta backvents käytävä kohti sinkkua', the corridor dividing at E7c -- the part holds positions of Tunnels"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'B tuplaovet ovat ruuduissa E5c,E6a,E5d (alakolmannes),E6b,F6a' and his words: 'Sitten alkaa portaat ylöspäin kohti venttiä ja secrettiä ruudussa E6a, sen alakolmannes varmaankin on se mistä portaat alkavat nousta': E6a but its bottom third, where the stairs start (the corridor, tunnels), and E5d's bottom third, where control's stairs reach the floor. Only in this split: its 1 Observation position (in E5d's bottom third) stays control, because one callout has one junction and Observation's is not one (the lead's decision 16). Junction basis: holds positions of Tunnels"
+
+[[de_nuke.Tunnels.split.parts]]
+callout = "secret"
+cells = ["F8c"]
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'pihalla kontaktilta ... secret' -- the game's Secret is his secret"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'His answers to the four clarifications, same day', his words: 'Ehkä secret voi alkaa ruudusta F8c alkaen ja mennä secretin portaat ylös pihalle': the game's Secret is his secret, so the counts merge. Junction basis: the same place as the game's Secret"
+
+[[de_nuke.Tunnels.split.parts]]
+callout = "alakerran sinkku"
+regions = [
+  { cell = "B6d", x = [0.5, 1.0], y = [0.5, 1.0], words = "B6d oikea alanurkka" },
+  { cell = "B7d", x = [0.5, 1.0], words = "B7d oikea puolisko" },
+  { cell = "C7a", x = [0.0, 0.6], words = "C7a vasen vähän yli puolisko" },
+  { cell = "C7c", x = [0.0, 0.5], y = [0.5, 1.0], words = "C7c vasen alanurkka" },
+]
+junction = false
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'alakerran sinkku on B6d oikea alanurkka, B7d oikea puolisko,C7a vasen vähän yli puolisko ja C7c vasen alanurkka' and his words: 'kohti alakerran sinkkua (deacon, preferoin alakerran sinkku)': the game's Decon is his alakerran sinkku, so the counts merge. The two corners sized by the size rule he confirmed (a corner is half the width by half the height); his 'vähän yli puolisko' (a little over half) of C7a is unquantified and read as 0.6, a reading that moves no position of a split area (Tunnels holds none in C7a). His B7d holds no Decon position -- Decon's are in B7b, C7a and C6c -- a question for him (B7b or B7d). Junction basis: the same place as the game's Decon"
+
+[[de_nuke.Tunnels.split.parts]]
+callout = "vent"
+regions = [
+  { cell = "D7b", y = [0.0, 0.3333333333333333], words = "se kulkee D7b ruudun yläkolmannesta" },
+  { cell = "D7a", y = [0.2, 0.4], words = "menee D7a ruudun keskellä siten, ventit käyttävät toista viidennestä ylhäältä päin ruudusta" },
+  { cell = "C7b", y = [0.2, 0.4], words = "C7b ruutu on venttiä samalla kulutuksella kuin D7a" },
+]
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke, his words: 'Ramppi, piha (ja sieltä secret) ja A sitellä ventti ovat ainoita reittejä alas B sitelle' -- the game's Vents is his vent"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'se kulkee D7b ruudun yläkolmannesta, tekee pienen mutkan alaspäin ja menee D7a ruudun keskellä siten, ventit käyttävät toista viidennestä ylhäältä päin ruudusta' and his words: 'C7b ruutu on venttiä samalla kulutuksella kuin D7a': his ventit is his plural of the game's Vents' vent (alueomistus-pohja-2026-09-26.md: Vents = ventti), so the counts merge. His 'Ventit ovat myös noin polveen asti pelaajamallia korkeammalla kuin lattia tässä kohtaa' fails the band rule: the vent (z -608) is 32 units over the corridor and the rafter (z -640), under 36, so the vent has no band; for that reason it is not a part of BombsiteB's split, where D7b's top third holds the rafter and the floor (the lead's decision 20). Junction basis: the same place as the game's Vents"
+
+[[de_nuke.Tunnels.split.parts]]
+callout = "back vents"
+cells = ["D7d", "D7c", "C7d", "C7c", "B7d"]
+broad = true
+junction = true
+junction_source = "his words 'Siitä kääntyy E7c ruudusta backvents käytävä kohti sinkkua', the corridor dividing at E7c -- the part holds positions of Tunnels"
+confidence = "inferred"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'Tuo back vents alue on siis mutka joka kääntyi R7c ruudun kohdalta ja menee D7d riviä D7c (ventistä pääsi myös tähän), ruutuun D7d josta alkaa portaat alas päin kohti alakerran sinkkua (deacon, preferoin alakerran sinkku) ja D7c ruudussa ollaan saavutettu B lattian taso, B7d on myös back vents aluetta'; his R7c is E7c, where the bend turns off tunnels (his clarification 1, vastaus-lobby-bsite-2026-09-29.md section 'His answers to the four clarifications, same day', quoted in Tunnels' own source). read 'menee D7d riviä D7c' as D7d, D7c, C7d, C7c -- the row from E7c to B7d, which he names at its end, with C7d and C7c between, a reading that moves 55 Tunnels positions, so inferred until he confirms it. The stairs down to the site floor are measured in C7d (z -679 to -586) to C7c (z -768 to -690), one half-cell west of his D7d and D7c; no region depends on it (the lead's decision 17). After alakerran sinkku, which holds B7d's right half and C7c's bottom-left corner, and broad: it yields to alakerran sinkku there, his 'B7d on myös back vents aluetta' beside 'alakerran sinkku on ... B7d oikea puolisko'. Junction basis: holds positions of Tunnels"
+
+[[de_nuke.Tunnels.split.parts]]
+callout = "laatikko"
+cells = ["D6d"]
+junction = true
+junction_source = "his words 'Siitä kääntyy E7c ruudusta backvents käytävä kohti sinkkua', the corridor dividing at E7c -- the part holds positions of Tunnels"
+confidence = "stated"
+source = "vastaus-lobby-bsite-2026-09-29.md section 'Verbatim', his words: 'se site kulkee tässä rafterin alla ruutuun D6d asti, jossa on sellainen laatikko josta voi hyppiä raftereille tai piiloutua sen taakse'. Its 5 Tunnels positions lie at D6d's right edge, z -718 to -673. The same place as the part of BombsiteB's split. Junction basis: holds positions of Tunnels"
 
 [de_nuke.Vending]
 callout = "trophy"

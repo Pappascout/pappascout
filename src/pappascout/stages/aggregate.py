@@ -1815,14 +1815,16 @@ HASHED_CALLOUT_FIELDS: tuple[str, ...] = (
     "split",
 )
 #: Of a split area (Story 4.17), what changes the report: the geometry that
-#: places a position, and each part's name, half-cells, boxes, regions and
-#: broad (Story 4.20), junction and confidence -- **in the parts' order**,
-#: which the hashed list keeps, because table order decides a spot two
-#: parts claim. The ``image``, every ``source`` and a region's ``words`` are
-#: provenance.
+#: places a position -- its floor ``zmin`` and ``zmax`` too (Story 4.24), which
+#: decide whether a position is split at all -- and each part's name,
+#: half-cells, boxes, regions and broad (Story 4.20), junction and confidence
+#: -- **in the parts' order**, which the hashed list keeps, because table
+#: order decides a spot two parts claim. The ``image``, every ``source`` and
+#: a region's ``words`` are provenance.
 HASHED_SPLIT_FIELDS: tuple[str, ...] = (
     "fit",
     "zmin",
+    "zmax",
     "origin",
     "cell",
     "columns",
