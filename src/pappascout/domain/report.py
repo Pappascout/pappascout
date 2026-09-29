@@ -510,6 +510,16 @@ __all__ = [
 #: default rounds*, where it meant that the type reported none. The other
 #: way round, a 21.0.0 file's default patterns are refused by a 20.0.0
 #: model's :meth:`RoundTypeReport._check_route_patterns_fit_the_block`.
+#:
+#: **Story 4.23 did not bump it**, and on purpose. It lets a place that is
+#: not coarse carry :attr:`PlaceName.parts` (Nuke's *lobby* and its
+#: *hattuhylly* and *hutladder*): nothing becomes required, no field changes
+#: meaning, and a 21.0.0 file written before the story validates and reads
+#: the same under this model -- no place of it has parts unless it is
+#: coarse. The accepted limit is the other way round: a file written since
+#: the story, reaching a model from before it, is refused by that model's
+#: :meth:`PlaceName._check_the_parts` with its *"... flagged None and not
+#: coarse"* message -- loudly, and never misread.
 REPORT_SCHEMA_VERSION = "21.0.0"
 
 #: What the newest version changed, in one sentence, for the message a stage
@@ -2951,8 +2961,9 @@ class PlaceName(_Node):
     #: The game's ``env_cs_place`` area. Never empty: an unnamed position is
     #: ``null`` on the rows and has no name to translate.
     area: str = Field(min_length=1)
-    #: The name printed for :attr:`area` -- for a split area, the coarse
-    #: name its rule rows print, because the rule measured the whole area.
+    #: The name printed for :attr:`area` -- for a split area, the area's
+    #: own name its rule rows print (coarse unless the area is not coarse,
+    #: Story 4.23), because the rule measured the whole area.
     callout: str = Field(min_length=1)
     flag: RouteFlag | None
     #: The callouts the area's positions are counted under where the area
@@ -2960,19 +2971,21 @@ class PlaceName(_Node):
     #: whether counted or not; empty for an area counted whole under
     #: :attr:`callout`. **Required**, for :data:`REPORT_SCHEMA_VERSION`'s
     #: 19.0.0 reason. A position the split cannot place keeps
-    #: :attr:`callout`. **Only a coarse place has parts**: the table splits
-    #: only an area holding several of his callouts, so a place whose flag is
-    #: not ``coarse`` or ``coarse_inferred`` with parts is refused -- it
-    #: would claim positions of a whole, certain place were counted apart.
+    #: :attr:`callout`. **Only a place with a callout has parts**: a coarse
+    #: one, whose split places every position, or since Story 4.23 one that
+    #: is not coarse (Nuke's *lobby*), whose parts are finer places inside
+    #: it while the rest keeps :attr:`callout`. A place flagged
+    #: ``no_callout`` or ``no_table`` with parts is refused -- the table
+    #: splits only an area it names.
     parts: list["PlacePart"]
 
     @model_validator(mode="after")
     def _check_the_parts(self) -> PlaceName:
-        if self.parts and self.flag not in ("coarse", "coarse_inferred"):
+        if self.parts and self.flag in ("no_callout", "no_table"):
             raise AggregateError(
                 f"The game area {self.area} lists parts, but its place is "
-                f"flagged {self.flag!r} and not coarse. Only an area holding "
-                "several of his callouts is split by position."
+                f"flagged {self.flag!r}. Only an area the callout table names "
+                "is split by position."
             )
         names = [part.callout for part in self.parts]
         if len(set(names)) != len(names) or self.callout in names:

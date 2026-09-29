@@ -3791,46 +3791,25 @@ def test_the_archives_route_patterns_are_the_ones_recorded() -> None:
     assert _pattern_blocks_from(root) == ROUTE_PATTERNS
 
 
-#: The pinned pairs where a moved extension has at least its prefix's
-#: count but not all of its rounds (Story 4.22's review, measured
-#: 2026-09-29): the one-place division rule drops a whole-side round from
-#: the prefix and not from the extension. ``render`` suppresses such a
-#: prefix on the count alone (``view._route_pattern_lines``), so each is
-#: recorded here with the fact that makes it harmless: it does not print.
-SUPPRESSED_PREFIXES_NOT_SUBSETS = {
-    ("1e1965abbc06133b/de_inferno/T/full", ("alamidi",)),
-    ("1e1965abbc06133b/de_nuke/CT/force", ("hell",)),
-}
-
-
-def test_a_suppressed_prefix_s_rounds_are_its_extensions_bar_two() -> None:
-    """The relation ``_route_pattern_lines``' prefix rule rests on, as an
-    observation over the pinned data and not a claim: where a moved
-    extension has at least its prefix's count, the prefix's rounds are
-    among the extension's, except in the recorded pairs, none of which
-    prints. A new exception fails here, and so does one that starts to
-    print."""
-    found = set()
-    for key, block in ROUTE_PATTERNS.items():
-        moved = [p for p in block["patterns"] if not p["stayed"]]
-        for prefix in moved:
-            size = len(prefix["path"])
-            ours = {tuple(r[:2]) for r in prefix["rounds"]}
-            for longer in moved:
-                theirs = {tuple(r[:2]) for r in longer["rounds"]}
-                if (
-                    len(longer["path"]) > size
-                    and longer["path"][:size] == prefix["path"]
-                    and len(theirs) >= len(ours)
-                    and not ours <= theirs
-                ):
-                    names = tuple(place[0] for place in prefix["path"])
-                    found.add((key, names))
-                    label = f"Reitti: {' -> '.join(names)},"
-                    assert not any(
-                        line.startswith(label) for line in block["lines"]
-                    ), (key, names)
-    assert found == SUPPRESSED_PREFIXES_NOT_SUBSETS
+@pytest.mark.archive
+def test_his_nuke_lobby_habit_line_prints_lobby_whole_and_unmarked() -> None:
+    """Story 4.23: splitting lobby into finer places moves no rule row. His
+    Nuke lobby habit is a rule on the whole game area, so the rendered line
+    prints *lobby* with no bracket and no mark, exactly as before the split
+    -- pinned whole, as the report prints it."""
+    root = require_parsed(*RECORDED_DEMOS)
+    report = _recorded_reports(root)["1e1965abbc06133b"]
+    text = render_report(
+        report, settings=_real_settings().report, round_list_paths=[]
+    )
+    habit = [
+        row for row in text.splitlines() if "CT-pelaajaa puskee alueelle" in row
+    ]
+    assert habit == [
+        "  - jopa 4 CT-pelaajaa puskee alueelle lobby säästökierroksilla, "
+        "2 kertaa: force 1, eco 1 (2/8 säästökierroksesta, 2/4 ottelussa; "
+        "eco k14 2026-09-20, force k19 2026-09-13)"
+    ]
 
 
 def test_the_recorded_patterns_show_the_nuke_force_lobby_route() -> None:

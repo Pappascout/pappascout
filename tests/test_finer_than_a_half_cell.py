@@ -358,7 +358,7 @@ def test_a_borrowed_part_named_like_the_borrowers_coarse_name_is_refused(
         + _split("", name="Yard", extra='parts_from = "Outside"\n'),
         encoding="utf-8",
     )
-    with pytest.raises(SettingsError, match="whole area's own coarse name"):
+    with pytest.raises(SettingsError, match="whole area's own name"):
         load_callouts(["de_nuke"], path)
 
 
@@ -370,6 +370,10 @@ _NEW_SPLITS = {
     "de_anubis": ("Canal",),
     "de_dust2": ("UnderA",),
 }
+#: The splits whose parts are held to the header's junction rule and whose
+#: bands to the band rule: Story 4.20's, and since Story 4.23 Nuke's lobby,
+#: which is on the yard's guide grid and so not in :data:`_NEW_SPLITS`.
+_PART_SPLITS = {**_NEW_SPLITS, "de_nuke": ("Lobby",)}
 
 
 def test_the_three_inferno_splits_read_one_table() -> None:
@@ -588,6 +592,117 @@ def test_reordering_a_splits_parts_moves_the_hash() -> None:
     assert digest(moved) != digest(same)
 
 
+# -- Story 4.23: lobby's levels, Crane as rafters, I3a -----------------------
+
+
+def test_lobby_is_his_whole_room_with_his_shelf_and_ladder_inside_it() -> None:
+    """Decisions 1 and 2: lobby stays lobby -- not coarse, unmarked, the
+    whole area for its rule rows -- and its split holds two finer places:
+    hattuhylly, the shelf level of I10c and I11c between two measured edges
+    (a closed band, Story 4.23's extended rule), and hutladder, the ladder in
+    I11a above its edge. A Lobby position on the ground, anywhere else in
+    the room, or on the first steps stays lobby, and nothing is
+    inherited."""
+    from pappascout.domain.aggregate import _route_place
+    from test_cell_split import _at_pixel, _centre
+
+    table = _table()["de_nuke"]
+    lobby = table["Lobby"]
+    assert lobby.callout == "lobby" and not lobby.coarse and lobby.junction
+    split = lobby.split
+    assert [p.callout for p in split.parts] == ["hattuhylly", "hutladder"]
+    shelf, ladder = split.parts
+    # His place, the lead's cells: inferred until he confirms I10c and I11c.
+    assert (shelf.confidence, ladder.confidence) == ("inferred", "stated")
+    assert {(r.cell, r.z) for r in shelf.regions} == {
+        ("I10c", (-332.6, -216.29)), ("I11c", (-332.6, -216.29))
+    }
+    assert [(r.cell, r.z) for r in ladder.regions] == [("I11a", (-337.36, INF))]
+    assert split.inherited == {}
+    x, y, _ = _at_pixel(split, *_centre(split, "I11a"))
+    assert split.part_at(x, y, -337.36).callout == "hutladder"
+    assert split.part_at(x, y, -288.0).callout == "hutladder"
+    assert split.part_at(x, y, -337.37) is None
+    for cell in ("I10c", "I11c"):
+        x, y, _ = _at_pixel(split, *_centre(split, cell))
+        assert split.part_at(x, y, -332.6).callout == "hattuhylly", cell
+        assert split.part_at(x, y, -288.0).callout == "hattuhylly", cell
+        assert split.part_at(x, y, -216.29) is None, cell
+        assert split.part_at(x, y, -332.61) is None, cell
+    for cell in ("I10c", "I11c", "H11b"):
+        x, y, _ = _at_pixel(split, *_centre(split, cell))
+        for z in (-416.0, -380.0):
+            assert split.part_at(x, y, z) is None, (cell, z)
+            place = _route_place("Lobby", table, frozenset(), (x, y, z))
+            assert (place.label, place.flag) == ("lobby", None), (cell, z)
+    assert "first steps" in split.source and "stay lobby" in split.source
+    whole = _route_place("Lobby", table)
+    assert (whole.label, whole.flag) == ("lobby", None)
+
+
+def test_a_height_band_holds_where_a_player_stands_and_no_detonation(
+    tmp_path: Path,
+) -> None:
+    """The lead's decision in the Story 4.23 review (edge F1): a band is
+    measured on players' ticks, so it holds a tick, a death and a throw, and
+    never a grenade's detonation -- 14 Lobby detonations burst in mid-air at
+    z -311.9 to -328.1, below the shelf's floor (-287.97), and were counted
+    as hattuhylly. A detonation falls to the next claim with no band: on a
+    small split the broad whole half-cell, on the shipped lobby its rest."""
+    from pappascout.domain.aggregate import EVENT_AREA_COLUMNS, named_rows
+    from test_cell_split import _at_pixel, _centre
+
+    split = _load(
+        tmp_path,
+        _part("raised", regions='{ cell = "A1a", z = [10.0, inf], words = "w" }')
+        + _part("floor", '"A1a"', broad=True),
+    )
+    assert _at(split, 5.0, 2.5, 20.0) == "raised"
+    assert split.part_at(5.0, -2.5, 20.0, stands=False).callout == "floor"
+    assert split.part_at(5.0, -2.5, 0.0, stands=False).callout == "floor"
+    table = _table()["de_nuke"]
+    lobby = table["Lobby"].split
+    x, y, _ = _at_pixel(lobby, *_centre(lobby, "I10c"))
+
+    def named(kind: str | None) -> str:
+        row = {"area": "Lobby", "x": x, "y": y, "z": -320.0}
+        if kind is not None:
+            row["event_kind"] = kind
+        (renamed,) = named_rows([row], EVENT_AREA_COLUMNS, table)
+        return renamed["area"]
+
+    assert named(None) == named("grenade_thrown") == "hattuhylly"
+    assert named("grenade_detonate") == "lobby"
+
+
+def test_crane_is_his_rafters_merged_with_catwalk_and_rafters() -> None:
+    """Decision 3: the game's Crane is his rafters, stated with his hedge
+    kept in the source; the merge rule holds its junction to rafters'."""
+    table = _table()["de_nuke"]
+    assert {a for a, e in table.items() if e.callout == "rafters"} == {
+        "Catwalk", "Rafters", "Crane"
+    }
+    crane = table["Crane"]
+    assert crane.confidence == "stated"
+    assert crane.junction == table["Rafters"].junction
+    assert "vastaukset-2026-09-29.md" in crane.source
+    assert "'Tuo crane alue on varmaan A siten puolella oleva rafter'" in crane.source
+
+
+def test_elevator_is_stated_since_he_confirmed_the_bottom_left_corner() -> None:
+    """Decision 4: his answer 3 confirms A27, so elevator carries no mark."""
+    from pappascout.domain.aggregate import _uncertain_callouts
+
+    dust2 = _table()["de_dust2"]
+    parts = {p.callout: p for p in dust2["UnderA"].split.parts}
+    elevator = parts["elevator"]
+    assert elevator.confidence == "stated"
+    assert "'Kyllä juurikin I3a:n vasen alanurkka'" in elevator.source
+    corner = next(r for r in elevator.regions if r.cell == "I3a")
+    assert (corner.x, corner.y) == ((0.0, 0.5), (0.5, 1.0))
+    assert "elevator" not in _uncertain_callouts(dust2)
+
+
 #: A part's junction basis, as its source ends (the header's junction rule).
 _BASIS = re.compile(r"Junction basis: (.*)$")
 
@@ -598,16 +713,17 @@ def _stated_basis(part) -> str:
     return match[1]
 
 
-@pytest.mark.parametrize("map_name", sorted(_NEW_SPLITS))
+@pytest.mark.parametrize("map_name", sorted(_PART_SPLITS))
 def test_every_new_parts_junction_follows_its_stated_basis(map_name: str) -> None:
     """Pins every Story 4.20 part's junction flag to the header's rule,
     derived and not copied: the flag is the junction of the game area its
     basis names -- the area it is the same place as, the split areas whose
     positions it holds (which must agree), the game area its region lies in,
     his name for a whole area, or the part it lies inside. Whether the
-    basis itself is true is the archive's to say, below."""
+    basis itself is true is the archive's to say, below. Since Story 4.23
+    also the lobby's hattuhylly and hutladder."""
     table = _table()[map_name]
-    parts = {p.callout: p for p in table[_NEW_SPLITS[map_name][0]].split.parts}
+    parts = {p.callout: p for p in table[_PART_SPLITS[map_name][0]].split.parts}
     for callout, part in parts.items():
         basis = _stated_basis(part)
         if basis.startswith("inside "):
@@ -640,48 +756,74 @@ def _live_ticks(root: Path, map_name: str) -> pl.DataFrame:
     return pl.concat(frames)
 
 
-#: The band rule of the callouts.toml header: at least this many ticks on
-#: each side of the largest gap, the gap at least this many units (twice the
-#: game's 18-unit step), and at least this many times the second-largest.
-BAND_MIN_TICKS, BAND_MIN_GAP, BAND_MIN_RATIO = 5, 36.0, 1.5
+def _band_rule_of_the_header() -> tuple[float, float, int]:
+    """The band rule's three numbers, read from the callouts.toml header --
+    the one place the rule is written (Story 4.23)."""
+    from test_cell_split import _header_text
+
+    rule = re.search(
+        r"each cut gap is at least (\d+) units .*? and at least ([\d.]+) times "
+        r"the largest gap not cut; the levels between the cuts must then each "
+        r"hold at least (\d+) ticks",
+        _header_text(),
+    )
+    assert rule, "the header states no band rule"
+    return float(rule[1]), float(rule[2]), int(rule[3])
 
 
-def _two_levels(z) -> tuple[bool, float, float, float]:
-    """Whether heights show two levels by the band rule, and the largest
-    gap's ends and midpoint."""
+#: The band rule of the callouts.toml header: a cut gap at least this many
+#: units (twice the game's 18-unit step) and this many times the largest gap
+#: not cut, and at least this many ticks on every level.
+BAND_MIN_GAP, BAND_MIN_RATIO, BAND_MIN_TICKS = _band_rule_of_the_header()
+
+
+def _levels(z) -> tuple[bool, list[tuple[float, float, float]], list[list[float]]]:
+    """The header's band rule on heights (extended in Story 4.23): whether
+    they show two levels or more, the cut gaps as (low end, high end,
+    midpoint) bottom to top, and the levels between the cuts. The FEWEST of
+    the largest gaps are cut such that each is at least BAND_MIN_GAP and
+    BAND_MIN_RATIO times the largest gap not cut; every level then needs
+    BAND_MIN_TICKS. With one cut this is Story 4.20's two-level rule."""
     values = sorted(float(v) for v in z)
     gaps = sorted(
         ((b - a, a, b) for a, b in zip(values, values[1:])), reverse=True
     )
-    if not gaps:
-        return False, 0.0, 0.0, 0.0
-    gap, low, high = gaps[0]
-    second = gaps[1][0] if len(gaps) > 1 else 0.0
-    below = sum(1 for v in values if v <= low)
-    passes = (
-        below >= BAND_MIN_TICKS
-        and len(values) - below >= BAND_MIN_TICKS
-        and gap >= BAND_MIN_GAP
-        and gap >= BAND_MIN_RATIO * second
-    )
-    return passes, low, high, (low + high) / 2
+    for k in range(1, len(gaps) + 1):
+        smallest = gaps[k - 1][0]
+        if smallest < BAND_MIN_GAP:
+            break
+        uncut = gaps[k][0] if k < len(gaps) else 0.0
+        if smallest >= BAND_MIN_RATIO * uncut:
+            cuts = sorted((a, b, (a + b) / 2) for _, a, b in gaps[:k])
+            bounds = [-INF, *(mid for _, _, mid in cuts), INF]
+            levels = [
+                [v for v in values if low <= v < high]
+                for low, high in zip(bounds, bounds[1:])
+            ]
+            return all(len(lv) >= BAND_MIN_TICKS for lv in levels), cuts, levels
+    return False, [], [values]
 
 
-def test_the_band_rule_is_the_headers() -> None:
-    """The three numbers above are the header's, read from it -- one place."""
-    from test_cell_split import _header_text
-
-    header = _header_text()
-    rule = re.search(
-        r"at least (\d+) ticks on each side of the largest gap in their z, the "
-        r"gap at least (\d+) units .*? and at least ([\d.]+) times the "
-        r"second-largest gap",
-        header,
-    )
-    assert rule, "the header states no band rule"
-    assert (int(rule[1]), float(rule[2]), float(rule[3])) == (
-        BAND_MIN_TICKS, BAND_MIN_GAP, BAND_MIN_RATIO
-    )
+def test_the_band_rule_reads_the_header_and_keeps_the_two_level_rule() -> None:
+    """The numbers are the header's; one cut is Story 4.20's rule (5 ticks a
+    side, 36 units, 1.5 times the second gap); and where the largest gap
+    alone fails, the fewest cuts that pass are taken."""
+    assert (BAND_MIN_GAP, BAND_MIN_RATIO, BAND_MIN_TICKS) == (36.0, 1.5, 5)
+    passes, cuts, _ = _levels([0.0] * 5 + [100.0] * 5)
+    assert passes and [mid for _, _, mid in cuts] == [50.0]
+    assert not _levels([0.0] * 4 + [100.0] * 5)[0]
+    assert not _levels([0.0] * 5 + [35.0] * 5)[0]
+    three = [0.0] * 5 + [100.0] * 5 + [190.0] * 5 + [230.0] * 5
+    passes, cuts, levels = _levels(three)
+    assert passes and [mid for _, _, mid in cuts] == [50.0, 145.0]
+    assert [len(lv) for lv in levels] == [5, 5, 10]
+    # Exactly 1.5 times the largest gap not cut is enough: 150 against 100.
+    passes, cuts, _ = _levels([0.0] * 5 + [150.0] * 3 + [250.0] * 3)
+    assert passes and [mid for _, _, mid in cuts] == [75.0]
+    assert not _levels([0.0] * 5 + [149.0] * 3 + [249.0] * 3)[0]
+    # Two equal gaps with a lone tick between: the fewest cuts leave a
+    # level of one tick, so the place fails.
+    assert not _levels([0.0] * 5 + [100.0] + [200.0] * 5)[0]
 
 
 def _in_rects(ticks: pl.DataFrame, split: CellSplit, rects) -> pl.DataFrame:
@@ -725,11 +867,15 @@ _BANDED = {
         ("short a", "G3b"), ("short a", "G3d"), ("short a", "H3b"),
         ("ct spawn", "G3b"), ("ct spawn", "G3d"),
     },
+    # Story 4.23: his hutLadder and hattuhylly, measured 2026-09-29.
+    "de_nuke": {
+        ("hutladder", "I11a"), ("hattuhylly", "I10c"), ("hattuhylly", "I11c"),
+    },
 }
 
 
 @pytest.mark.archive
-@pytest.mark.parametrize("map_name", sorted(_NEW_SPLITS))
+@pytest.mark.parametrize("map_name", sorted(_PART_SPLITS))
 def test_every_height_band_passes_the_band_rule_at_its_largest_gap(
     map_name: str,
 ) -> None:
@@ -745,18 +891,24 @@ def test_every_height_band_passes_the_band_rule_at_its_largest_gap(
     area on that side of the edge; where one area holds both sides (short
     boost: Quad), the source must say the direction rests on his words."""
     root = require_parsed()
-    split = _table()[map_name][_NEW_SPLITS[map_name][0]].split
+    split = _table()[map_name][_PART_SPLITS[map_name][0]].split
     ticks = _live_ticks(root, map_name)
     edges: dict[float, list] = {}
     parts: dict[float, set] = {}
+    closed: dict[str, tuple[float, float]] = {}
     for part, rect, band in split._claims:
         for edge in band or ():
             if edge not in (INF, -INF):
                 edges.setdefault(edge, []).append(rect)
                 parts.setdefault(edge, set()).add(part.callout)
                 # Each banded part says which level it is, and it must be
-                # the side of the edge its own band lies on.
-                side = "upper" if band[0] == edge else "lower"
+                # the side of the edge its own band lies on -- or, for a
+                # closed band (Story 4.23), the middle.
+                if INF not in band and -INF not in band:
+                    closed[part.callout] = band
+                    side = "middle"
+                else:
+                    side = "upper" if band[0] == edge else "lower"
                 assert f"is the {side} level" in part.source, (part.callout, side)
     assert edges, map_name
     banded = {
@@ -769,9 +921,16 @@ def test_every_height_band_passes_the_band_rule_at_its_largest_gap(
     by_callout = {p.callout: p for p in split.parts}
     for edge, rects in edges.items():
         place = _in_rects(ticks, split, rects)
-        passes, low, high, mid = _two_levels(place["z"])
-        assert passes, (edge, low, high)
-        assert low < edge < high and abs(edge - mid) < 0.01, (edge, low, high)
+        passes, cuts, _ = _levels(place["z"])
+        assert passes, (edge, cuts)
+        assert any(
+            low < edge < high and abs(edge - mid) < 0.01 for low, high, mid in cuts
+        ), (edge, cuts)
+        if all(callout in closed for callout in parts[edge]):
+            continue
+        # A half-open band is Story 4.20's: exactly one cut, so the extended
+        # rule re-derives it unchanged.
+        assert len(cuts) == 1, (edge, cuts)
         for side, rows in (
             ("upper", place.filter(pl.col("z") >= edge)),
             ("lower", place.filter(pl.col("z") < edge)),
@@ -798,6 +957,33 @@ def test_every_height_band_passes_the_band_rule_at_its_largest_gap(
                 "direction rests on his words" in by_callout[c].source
                 for c in parts[edge]
             ), edge
+    for callout, band in closed.items():
+        # A middle level (Story 4.23): its edges are two consecutive cuts,
+        # and its source names every level's dominant game area, bottom to
+        # top, with the counts the rule's levels hold.
+        source = by_callout[callout].source
+        rects = [rect for part, rect, _ in split._claims if part.callout == callout]
+        place = _in_rects(ticks, split, rects)
+        _, cuts, _ = _levels(place["z"])
+        mids = [round(mid, 2) for _, _, mid in cuts]
+        assert any(
+            (mids[i], mids[i + 1]) == band for i in range(len(mids) - 1)
+        ), (callout, band, mids)
+        bounds = [-INF, *(mid for _, _, mid in cuts), INF]
+        found = []
+        for low, high in zip(bounds, bounds[1:]):
+            rows = place.filter((pl.col("z") >= low) & (pl.col("z") < high))
+            top = rows.group_by("area").len().sort("len", descending=True).row(0)
+            found.append((top[0], top[1], rows.height))
+        stated = re.search(r"The levels, bottom to top, are the game's (.*?); ", source)
+        assert stated, callout
+        named = [
+            (area, int(n), int(m))
+            for area, n, m in re.findall(r"(\w+) \((\d+) of (\d+)", stated[1])
+        ]
+        assert named == found, (callout, found)
+        if any(a[0] == b[0] for a, b in zip(found, found[1:])):
+            assert "rests on his words" in source, callout
 
 
 #: The places he names by height that the rule refuses a band, each with the
@@ -818,19 +1004,19 @@ def test_every_place_built_without_a_band_fails_the_band_rule(place: str) -> Non
     without a band fails the rule on the archive, and its part's source says
     it fails. The balcony's place is its own regions."""
     map_name, callout, cells, y = _ONE_LEVEL[place]
-    split = _table()[map_name][_NEW_SPLITS[map_name][0]].split
+    split = _table()[map_name][_PART_SPLITS[map_name][0]].split
     part = next(p for p in split.parts if p.callout == callout)
     if cells is None:
         rects = [split._region_rect(part, r) for r in part.regions]
     else:
         rects = [_half_cell(split, c, y) for c in cells]
     place_ticks = _in_rects(_live_ticks(require_parsed(), map_name), split, rects)
-    assert not _two_levels(place_ticks["z"])[0], place
+    assert not _levels(place_ticks["z"])[0], place
     assert "fails the band rule" in part.source or "NOT BUILT" in part.source, place
 
 
 @pytest.mark.archive
-@pytest.mark.parametrize("map_name", sorted(_NEW_SPLITS))
+@pytest.mark.parametrize("map_name", sorted(_PART_SPLITS))
 def test_every_stated_junction_basis_is_what_the_archive_shows(map_name: str) -> None:
     """The basis each source states, re-derived: *holds positions of A, B*
     is exactly the split areas whose positions the lookup gives the part;
@@ -840,12 +1026,14 @@ def test_every_stated_junction_basis_is_what_the_archive_shows(map_name: str) ->
     root = require_parsed()
     table = _table()[map_name]
     ticks = _live_ticks(root, map_name)
-    split = table[_NEW_SPLITS[map_name][0]].split
+    split = table[_PART_SPLITS[map_name][0]].split
     holds: dict[str, set] = {}
-    for area in _NEW_SPLITS[map_name]:
+    for area in _PART_SPLITS[map_name]:
         area_split = table[area].split
         for x, y, z in ticks.filter(pl.col("area") == area).select("x", "y", "z").iter_rows():
-            holds.setdefault(area_split.part_at(x, y, z).callout, set()).add(area)
+            part = area_split.part_at(x, y, z)
+            if part is not None:  # the rest of a lobby-like area (Story 4.23)
+                holds.setdefault(part.callout, set()).add(area)
     lies: dict[str, dict] = {}
     px = ticks["x"].to_numpy() * split.fit.sx + split.fit.bx
     py = -ticks["y"].to_numpy() * split.fit.sy + split.fit.by

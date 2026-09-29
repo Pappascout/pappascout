@@ -55,14 +55,17 @@ game areas against his blind judgements (Stories 4.4 and 4.5), and moving
 their input would move their calibration. The routes read the unrenamed rows
 too, because they translate each step themselves (:func:`_route_place`).
 
-**A coarse area can be split by position** (Story 4.17): Nuke's yard is one
+**An area can be split by position** (Story 4.17): Nuke's yard is one
 game area holding more than twenty of his places, and he divided it on his
 guide image's grid (``callouts.toml``'s ``split``). A split area's row is
 renamed by the row's own position (:data:`POSITION_COLUMNS`), and a route
 step by the sample point's -- through the same :func:`_route_place`, so a
 statistic and a route cannot name one position differently. A rule row on
-the split area still prints the whole area's coarse name, because its rule
-measured the whole area; no rule's input moves.
+the split area still prints the whole area's own name -- coarse, unless the
+area is not coarse (Story 4.23: Nuke's lobby, whose split holds finer places
+inside it and leaves the rest lobby) -- because its rule measured the whole
+area; no rule's input moves. A height band of a split holds only where a
+player stands, never a grenade's detonation (Story 4.23).
 
 Three rules that do not bend
 ----------------------------
@@ -1639,6 +1642,7 @@ def _route_place(
     callouts: MapCallouts | None,
     uncertain: frozenset[str] = frozenset(),
     position: _Position | None = None,
+    stands: bool = True,
 ) -> _Place:
     """Translate one game area into the product owner's callout.
 
@@ -1657,7 +1661,13 @@ def _route_place(
       step at one position cannot name it differently. A position the split
       cannot place (none given, no coordinates, or below its floor) falls
       through to the whole area's coarse name, below -- and so does every
-      anomaly row, whose rule measured the whole area;
+      anomaly row, whose rule measured the whole area. On an area that is
+      not coarse (Story 4.23) a position no part holds falls through the
+      same way, to the area's own callout, with the area's own flag (never
+      coarse). ``stands`` is ``False`` for a position no player stood at (a
+      grenade's detonation): a height band, measured on players, does not
+      apply to it (Story 4.23, :meth:`~pappascout.domain.models.CellSplit
+      .part_at`);
     * **the area has a callout** -- his callout, kept if it is a junction.
       Flagged ``coarse`` where the area holds several of his callouts,
       ``inferred`` where the callout is in ``uncertain``
@@ -1682,7 +1692,7 @@ def _route_place(
     if entry.callout is None:
         return _Place(area, "no_callout", entry.kept)
     if entry.split is not None and position is not None:
-        part = entry.split.part_at(*position)
+        part = entry.split.part_at(*position, stands=stands)
         if part is not None:
             return _Place(
                 part.callout,
@@ -1722,7 +1732,9 @@ def named_rows(
     :data:`POSITION_COLUMNS` is read with the row's own coordinates, so
     Nuke's yard is counted under his callouts half-cell by half-cell -- a
     tick at its own ``x, y, z``, a death at the victim's or the attacker's,
-    a utility event at its own.
+    a utility event at its own. A height band holds only where a player
+    stands (Story 4.23): a throw is at the thrower's hand and takes it,
+    a detonation is where the grenade burst and never does.
 
     **Copies, not the rows themselves**: the anomaly rules and the routes
     read the same rows by their game areas, and must go on reading them so.
@@ -1755,8 +1767,14 @@ def named_rows(
         area = _observed_area(row[column])
         if area in split:
             # Divided by the row's own position (Story 4.17), so not cached.
+            # A detonation is where a grenade burst, not where a player
+            # stood, so no height band holds it (Story 4.23).
             return _route_place(
-                area, callouts, uncertain, _position(row, column)
+                area,
+                callouts,
+                uncertain,
+                _position(row, column),
+                stands=row.get("event_kind") != "grenade_detonate",
             ).label
         if area not in names:
             names[area] = _route_place(area, callouts, uncertain).label
@@ -2388,9 +2406,9 @@ def route_patterns_for(
     * **A one-place path's count leaves out its whole-side rounds**, while
       its extensions keep them. So a prefix's rounds are not always among
       its extension's -- on the archive's Dust2 T default ``outside
-      tunnels`` has 6 against its extension's 7 -- and ``render``'s prefix
-      rule, which compares counts, is recorded against the pinned data in
-      ``tests/test_calibration.py``.
+      tunnels`` has 6 against its extension's 7 -- which is why
+      ``render``'s prefix rule compares round sets and not counts (Story
+      4.23).
     * **``side`` is ``len(paths)``**, every sampled player of the round,
       including one who reaches no junction and so has no route here. A
       group of the players who did reach one can then pass as a division

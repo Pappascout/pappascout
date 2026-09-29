@@ -419,8 +419,12 @@ def test_the_shipped_inheritance_covers_the_grid_without_a_named_half_cell(
 ) -> None:
     """*"Liitä loput lähimpään"* on Nuke and *"mainitsematon lähimmällä"* on
     Ancient, written out: every half-cell of the grid is named by the table
-    or inherited, never both."""
-    _, split = _every_split()[key]
+    or inherited, never both. On an area that is not coarse (Story 4.23,
+    Nuke's Lobby) nothing is inherited: the rest keeps the area's callout."""
+    table, split = _every_split()[key]
+    if not table[key.split(".")[1]].coarse:
+        assert split.inherited == {}
+        return
     named = {name for part in split.parts for name in part.cells}
     inherited = set(split.inherited)
     assert not named & inherited
@@ -450,7 +454,7 @@ def test_the_shipped_inheritance_covers_the_grid_without_a_named_half_cell(
         ),
         (_part("a", boxes="[5.0, 0.0, 5.0, 5.0]"), "", "x0 < x1"),
         (_part("a"), "", "neither a half-cell nor a box"),
-        (_part("outside", '"A1a"'), "", "whole area's own coarse name"),
+        (_part("outside", '"A1a"'), "", "whole area's own name"),
     ],
 )
 def test_a_split_that_would_give_a_position_two_answers_is_refused(
@@ -460,10 +464,62 @@ def test_a_split_that_would_give_a_position_two_answers_is_refused(
         _load(tmp_path, _toml_split(parts, extra))
 
 
-def test_only_a_coarse_area_is_split(tmp_path: Path) -> None:
+def test_regions_reaching_a_half_cells_far_side_touch_and_do_not_overlap(
+    tmp_path: Path,
+) -> None:
+    """Story 4.23: a region ending on its half-cell's right or bottom edge
+    ends on the neighbour's start exactly. On a grid of 21.1-pixel
+    half-cells, x0 + 1.0 * 21.1 at half-cell 12 lands past half-cell 13's
+    start by float noise (measured), so two parts in those touching
+    half-cells were refused as overlapping. Checked on x (G1a beside G1b,
+    half-cell columns 12 and 13) and on y (A7a above A7c, half-cell rows 12
+    and 13), each a whole-half-cell region of its own part."""
+    half = 42.2 / 2
+    assert 21.0 + 12 * half + 1.0 * half > 21.0 + 13 * half, "noise not reproduced"
+    names = ["G1a", "G1b", "A7a", "A7c"]
+    parts = "".join(
+        f'\n[[de_nuke.Outside.split.parts]]\ncallout = "p{n}"\n'
+        f'regions = [{{ cell = "{name}", words = "w" }}]\n'
+        'junction = false\nconfidence = "stated"\nsource = "a test"\n'
+        for n, name in enumerate(names)
+    )
+    text = _toml_split(parts).replace(
+        'origin = [0.0, 0.0]\ncell = [20.0, 10.0]\ncolumns = "ABCD"\nrows = 4',
+        'origin = [21.0, 21.0]\ncell = [42.2, 42.2]\ncolumns = "ABCDEFGHIJ"\nrows = 10',
+    )
+    assert 'columns = "ABCDEFGHIJ"' in text
+    split = _load(tmp_path, text)
+    assert len(split.parts) == len(names)
+
+
+def test_a_split_of_an_area_that_is_not_coarse_keeps_the_rest_as_the_area(
+    tmp_path: Path,
+) -> None:
+    """Story 4.23 decision 1: on an area that is not coarse the parts are
+    finer places inside it. A position a part holds takes the part; every
+    other position -- the next half-cell, and one off the grid, which on a
+    coarse area would take the nearest part -- keeps the area's own
+    callout, unflagged, and nothing is inherited. The same table with
+    ``coarse = true`` takes the nearest part there, so the difference is the
+    one key."""
     text = _toml_split(_part("a", '"A1a"')).replace("coarse = true\n", "")
-    with pytest.raises(SettingsError, match="not coarse"):
-        _load(tmp_path, text)
+    path = tmp_path / "callouts.toml"
+    path.write_text(text, encoding="utf-8")
+    table = load_callouts(["de_nuke"], path)["de_nuke"]
+    split = table["Outside"].split
+    assert split.inherited == {}
+    assert split.part_at(1.0, -1.0, 0.0).callout == "a"
+    for x, y in ((15.0, -1.0), (900.0, -80.0)):
+        assert split.part_at(x, y, 0.0) is None
+        place = _route_place("Outside", table, frozenset(), (x, y, 0.0))
+        assert (place.label, place.flag) == ("outside", None)
+    place = _route_place("Outside", table, frozenset(), (1.0, -1.0, 0.0))
+    assert (place.label, place.flag) == ("a", None)
+    (outside,) = places_for(table, ["Outside"])
+    assert (outside.callout, outside.flag) == ("outside", None)
+    assert [p.callout for p in outside.parts] == ["a"]
+    coarse = _load(tmp_path, _toml_split(_part("a", '"A1a"')))
+    assert coarse.part_at(15.0, -1.0, 0.0).callout == "a"
 
 
 def test_a_part_must_agree_with_the_area_of_its_name(tmp_path: Path) -> None:
@@ -927,6 +983,8 @@ _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
 _HEIGHT_WORDS = (
     "z koordinaat", "korkeammalla", "korkeampi", "ylempänä", "alempana",
     "päällä", "buust",
+    # Story 4.23: his lobby answer, "eri z arvoja".
+    "z arvo",
 )
 
 
@@ -1023,7 +1081,14 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
             assert any(
                 term in quote for quote in quotes for term in _HEIGHT_WORDS
             ), part.callout
-            assert "zbands-mitattu-2026-09-28.md" in part.source, part.callout
+            # The measurement document the band came from: zbands (Story
+            # 4.20) or, for Nuke's lobby, the lobby's own (Story 4.23).
+            assert re.search(
+                r"Height band measured, not guessed \([^)]*"
+                r"(?:zbands-mitattu-2026-09-28|nuke-lobby-z-mitattu-2026-09-29)"
+                r"\.md",
+                part.source,
+            ), part.callout
             for edge in region.z:
                 if edge not in (float("inf"), float("-inf")):
                     assert f"{edge}" in part.source, (part.callout, edge)
@@ -1332,7 +1397,9 @@ def test_a_split_does_not_remove_its_areas_junction() -> None:
 
 
 def test_mainhall_is_coarse_under_his_three_names_joined() -> None:
-    """Only a coarse area is split, so MainHall became coarse. It has no
+    """A split of an area holding several of his callouts divides every
+    position, so MainHall became coarse (Story 4.18; Story 4.23 added the
+    other form, finer places inside an area that is not). It has no
     guide claim, so its coarse name, for a rule row on the whole area, is
     its parts joined with '/'."""
     entry = _ancient()["MainHall"]

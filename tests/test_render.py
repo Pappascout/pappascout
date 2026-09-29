@@ -10063,6 +10063,44 @@ def test_a_prefix_as_frequent_as_its_extension_is_not_printed() -> None:
     assert "hut" in only
 
 
+def test_a_prefix_is_hidden_by_round_sets_and_not_by_counts() -> None:
+    """Story 4.23 decision 5: one of the prefix's rounds is not among the
+    extension's -- the one-place division rule can drop a whole-side round
+    from a prefix and not from its extension -- so the prefix says something
+    the extension does not, and both print: at the same count, and with the
+    extension outnumbering it, which the count rule hid."""
+    prefix = pattern(["outside", "lobby"], [4, 4, 4], demos=["d0", "d1", "d3"])
+    for demos in (["d0", "d1", "d2"], ["d0", "d1", "d2", "d2"]):
+        extension = pattern(
+            ["outside", "lobby", "hut"], [3] * len(demos), demos=demos
+        )
+        assert len(pattern_lines(pattern_block([prefix, extension]))) == 2, demos
+
+
+def test_a_round_is_its_demo_and_its_number() -> None:
+    """The round set's key is (demo, round number): two rounds of one demo
+    are two rounds. The prefix's round 2 of d0 is not among the extension's
+    rounds, though d0 is, so a key of the demo alone would hide the prefix;
+    a key of the number alone is ruled out by the test above."""
+
+    def taken(areas: list[str], rounds: list[tuple[str, int]]) -> RoutePattern:
+        return pattern(areas, [3] * len(rounds)).model_copy(
+            update={
+                "rounds": [
+                    RoutePatternRound(map_demo_id=demo, round_no=number, players=3)
+                    for demo, number in rounds
+                ]
+            }
+        )
+
+    prefix = taken(["outside", "lobby"], [("d0", 1), ("d0", 2), ("d1", 3)])
+    extension = taken(["outside", "lobby", "hut"], [("d0", 1), ("d0", 4), ("d1", 3)])
+    assert len(pattern_lines(pattern_block([prefix, extension]))) == 2
+    same = taken(["outside", "lobby", "hut"], [("d0", 1), ("d0", 2), ("d1", 3)])
+    (only,) = pattern_lines(pattern_block([prefix, same]))
+    assert "hut" in only
+
+
 def test_a_stayed_extension_does_not_hide_the_group_that_moved() -> None:
     """The second DECIDED rule 5, from the review's measurement: two players
     last seen alive at the end of a path are a part of the group, and must

@@ -2924,7 +2924,7 @@
       "lines": [
         "Reitti: lobby, jopa 4 pelaajaa (23/29 kierroksesta, 4/4 ottelussa, uusin mukana)",
         "Reitti: kontakti, jopa 4 pelaajaa (12/29 kierroksesta, 4/4 ottelussa, uusin mukana)",
-        "Reitti: lobby, jopa 3 pelaajaa jää (10/29 kierroksesta, 4/4 ottelussa, uusin mukana)",
+        "Reitti: lobby, jopa 3 pelaajaa jää (9/29 kierroksesta, 3/4 ottelussa, uusin mukana)",
         "Reitti: lobby -> radio, jopa 2 pelaajaa jää (7/29 kierroksesta, 4/4 ottelussa, uusin mukana)",
         "Reitti: t roof -> silo, 1 pelaaja jää (6/29 kierroksesta, 4/4 ottelussa, uusin mukana)",
         "Reitti: kontakti -> t red, jopa 4 pelaajaa (5/29 kierroksesta, 3/4 ottelussa, uusin mukana)",
@@ -3194,11 +3194,6 @@
               2,
               8,
               2
-            ],
-            [
-              3,
-              9,
-              1
             ]
           ],
           "stayed": true
@@ -5591,7 +5586,7 @@
         "Reitti: lobby, jopa 4 pelaajaa (8/8 kierroksesta)",
         "Reitti: lobby -> radio, jopa 3 pelaajaa (4/8 kierroksesta)",
         "Reitti: kontakti, jopa 3 pelaajaa (3/8 kierroksesta)",
-        "Reitti: lobby, jopa 2 pelaajaa jää (3/8 kierroksesta)",
+        "Reitti: lobby, 1 pelaaja jää (3/8 kierroksesta)",
         "Reitti: lobby -> radio, 1 pelaaja jää (3/8 kierroksesta)",
         "Reitti: lobby -> squeaky, 1 pelaaja jää (3/8 kierroksesta)"
       ],
@@ -5743,7 +5738,7 @@
             [
               0,
               22,
-              2
+              1
             ]
           ],
           "stayed": true

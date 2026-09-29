@@ -2053,7 +2053,7 @@ class CellPart(_Section):
 
 
 class CellSplit(_Section):
-    """A coarse game area divided by position into his callouts, on a grid
+    """A game area divided by position into his callouts, on a grid
     over a guide image (Story 4.17): on Nuke the guide's own grid, on Ancient
     a generated grid of 425 game units from pixel (0, 0) (Story 4.18,
     ``grid2.py``). In both cases he named the half-cells against pictures of
@@ -2068,7 +2068,7 @@ class CellSplit(_Section):
     :attr:`origin` and whose size is :attr:`cell`, each cell divided into
     the four half-cells he names (``K13b``). A position below :attr:`zmin`
     is not on the floor the image draws and is not split: it keeps the
-    area's coarse name, and so does a position with no coordinates. A split
+    area's own callout, and so does a position with no coordinates. A split
     whose fit was made with no floor cut (Ancient's, Story 4.18) has no
     :attr:`zmin`, and every position with coordinates is split.
 
@@ -2087,6 +2087,13 @@ class CellSplit(_Section):
     third step is a derivation in code and never a hand-filled row:
     :attr:`inherited` lists it for every half-cell no part names whole, and
     a position off the grid is placed by the same rule.
+
+    **On an area that is not coarse** (Story 4.23: Nuke's ``Lobby``) the
+    third step does not apply. The area is one of his places whole, and the
+    parts are finer places inside it, so a position no part holds keeps the
+    area's own callout: :meth:`part_at` returns ``None`` and
+    :attr:`inherited` is empty. :class:`CalloutEntry` sets this from its
+    ``coarse``; it is not a key of the table.
 
     **Refused at load:** a spot two parts claim at the same height, unless
     the later part is marked :attr:`~CellPart.broad` (and a broad part that
@@ -2111,6 +2118,12 @@ class CellSplit(_Section):
 
     _named: dict[tuple[int, int], CellPart] = PrivateAttr(default_factory=dict)
     _nearest: dict[tuple[int, int], CellPart] = PrivateAttr(default_factory=dict)
+    #: Whether a position no part holds keeps the area's own callout instead
+    #: of taking the nearest named half-cell's (Story 4.23): true exactly on
+    #: a split of an area that is **not coarse**, and set by
+    #: :class:`CalloutEntry` from its ``coarse`` -- derived, so the table
+    #: cannot say otherwise.
+    _rest_is_area: bool = PrivateAttr(default=False)
     #: Every named half-cell and region as (part, rectangle, band), in table
     #: order: the lookup's second step reads it front to back.
     _claims: list[tuple[CellPart, _Rect, ZBand | None]] = PrivateAttr(
@@ -2230,12 +2243,16 @@ class CellSplit(_Section):
         not meet at one point."""
         half_width, half_height = self.cell[0] / 2, self.cell[1] / 2
         if region.cell is not None:
-            x0, y0, _, _ = self._rect_of(self.index_of(region.cell))
+            x0, y0, x1, y1 = self._rect_of(self.index_of(region.cell))
+            # A fraction reaching the half-cell's far side ends on its edge
+            # exactly: x0 + 1.0 * width can miss the neighbour's x0 by float
+            # noise, and two regions in touching half-cells then "overlap"
+            # (found in Story 4.23: I11a against I10c and I11c).
             return (
                 x0 + region.x[0] * half_width,
                 y0 + region.y[0] * half_height,
-                x0 + region.x[1] * half_width,
-                y0 + region.y[1] * half_height,
+                x1 if region.x[1] == 1.0 else x0 + region.x[1] * half_width,
+                y1 if region.y[1] == 1.0 else y0 + region.y[1] * half_height,
             )
         indices = [self.index_of(name) for name in region.crossing or []]
         # In index units a half-cell is [c, c + 1] x [r, r + 1], so the
@@ -2329,12 +2346,27 @@ class CellSplit(_Section):
         return self._nearest[index]
 
     def part_at(
-        self, x: float | None, y: float | None, z: float | None
+        self,
+        x: float | None,
+        y: float | None,
+        z: float | None,
+        *,
+        stands: bool = True,
     ) -> CellPart | None:
         """The part a position is counted under, or ``None`` where the split
         cannot place it: a coordinate missing or not finite (NaN or an
-        infinity is no position, as elsewhere in the codebase), or below
-        :attr:`zmin` where the split has one."""
+        infinity is no position, as elsewhere in the codebase), below
+        :attr:`zmin` where the split has one, or -- on a split of an area
+        that is not coarse (Story 4.23) -- held by no part's box, half-cell
+        or region and band: the rest of the room keeps the area's own
+        callout, and the nearest rule does not apply.
+
+        **A height band applies only where a player stands** (Story 4.23,
+        the lead's decision): a band is measured on the live players' ticks,
+        so ``stands`` is ``False`` for a position no player stood at -- a
+        grenade's detonation, often in mid-air -- and then no banded claim
+        holds it. It falls to the next claim with no band, then to the
+        area's rest or the nearest half-cell, as the split's form says."""
         if any(v is None or not isfinite(v) for v in (x, y, z)):
             return None
         if self.zmin is not None and z < self.zmin:  # type: ignore[operator]
@@ -2348,9 +2380,12 @@ class CellSplit(_Section):
             if (
                 rect[0] <= px < rect[2]
                 and rect[1] <= py < rect[3]
+                and (stands or band is None)
                 and _z_inside(band, z)  # type: ignore[arg-type]
             ):
                 return part
+        if self._rest_is_area:
+            return None
         return self._part_of(
             (
                 floor((px - self.origin[0]) / (self.cell[0] / 2)),
@@ -2362,7 +2397,10 @@ class CellSplit(_Section):
     def inherited(self) -> dict[str, str]:
         """Every half-cell of the grid the table does not name, and the
         callout it takes from its nearest named half-cell -- the table's
-        *"the rest to the nearest"*, written out."""
+        *"the rest to the nearest"*, written out. Empty on a split of an
+        area that is not coarse, whose rest keeps the area's own callout."""
+        if self._rest_is_area:
+            return {}
         return {
             self.name_of((column, row)): self._part_of((column, row)).callout
             for row in range(2 * self.rows)
@@ -2414,8 +2452,10 @@ class CalloutEntry(_Section):
     source: str = Field(min_length=1)
     note: str | None = Field(default=None, min_length=1)
     #: The area divided by position into his callouts (Story 4.17), or
-    #: ``None`` for an area counted whole. Only a coarse area is split, and
-    #: its own ``callout`` stays what a rule row on the whole area prints.
+    #: ``None`` for an area counted whole. Its own ``callout`` stays what a
+    #: rule row on the whole area prints. A coarse area's split places every
+    #: position; a split of an area that is not coarse holds only finer
+    #: places inside it, and the rest keeps ``callout`` (Story 4.23).
     split: CellSplit | None = None
 
     @field_validator("callout")
@@ -2448,16 +2488,14 @@ class CalloutEntry(_Section):
                 "named place must say how sure its name is."
             )
         if self.split is not None:
-            if not self.coarse:
-                raise ValueError(
-                    "split is set on an area that is not coarse; only an "
-                    "area holding several of his callouts is divided."
-                )
             if self.callout in {part.callout for part in self.split.parts}:
                 raise ValueError(
                     f"a part of the split is named {self.callout!r}, the "
-                    "whole area's own coarse name; the two would print alike."
+                    "whole area's own name; the two would print alike."
                 )
+            # Story 4.23: on an area that is not coarse the parts are finer
+            # places inside it, and the rest keeps the area's own callout.
+            self.split._rest_is_area = not self.coarse
         return self
 
     @property

@@ -104,12 +104,21 @@
 #                      4.17), on a grid over his guide image -- Nuke's the
 #                      guide's own, Ancient's a generated 425-unit grid from
 #                      pixel (0, 0) (grid2.py) -- as he gave it half-cell by
-#                      half-cell against pictures of that grid. Only a
-#                      coarse area is split, and its own callout stays what
-#                      a RULE row on the whole
+#                      half-cell against pictures of that grid. A split
+#                      area's own callout stays what a RULE row on the whole
 #                      area prints (the rules measured the whole area and are
-#                      calibrated there). Its keys: image, fit (the Story
-#                      4.16 projection px = sx*x + bx, py = -sy*y + by,
+#                      calibrated there). A coarse area's split places every
+#                      position it can. ON AN AREA THAT IS NOT COARSE (Story
+#                      4.23, Nuke's Lobby) the loader accepts a split in one
+#                      form only: the area keeps its own callout, with the
+#                      area's own flag (never coarse), for its rule rows and
+#                      for every position no part's half-cell, box or region
+#                      and band holds; the parts are finer places inside it;
+#                      and the NEAREST rule below does not apply, because the
+#                      rest of the room is the area. The form is derived from
+#                      coarse in code, so no key here can say otherwise. Its
+#                      keys: image, fit (the Story 4.16 projection
+#                      px = sx*x + bx, py = -sy*y + by,
 #                      unrounded as the pictures were drawn -- one value per
 #                      map, carried by each split and refused if it differs;
 #                      tests/data/guide_fit.json reads it through
@@ -127,9 +136,10 @@
 #                      a top-left, b top-right, c bottom-left, d
 #                      bottom-right) and boxes (pixel rectangles
 #                      [x0, y0, x1, y1] for a place smaller than a
-#                      half-cell, overriding the half-cells beneath). A
-#                      half-cell nobody names takes its NEAREST named
-#                      half-cell's callout, by centre distance, a tie to the
+#                      half-cell, overriding the half-cells beneath). On a
+#                      coarse area, a half-cell nobody names takes its
+#                      NEAREST named half-cell's callout, by centre
+#                      distance, a tie to the
 #                      part first in the file (his "liitä loput
 #                      lähimpään"); that is derived in code
 #                      (CellSplit.inherited), never written here. A part
@@ -146,19 +156,43 @@
 #                      default: the precedents (postimerkki, ct box, dig) are
 #                      boxes of one half-cell, and his short boost is one in
 #                      his own words. z = [lo, hi] is a height band: the
-#                      region holds a position only with lo <= z < hi.
-#                      THE BAND RULE. A band exists only where the live ticks
-#                      of the map inside its regions show two levels: at
-#                      least 5 ticks on each side of the largest gap in their
-#                      z, the gap at least 36 units (twice the game's 18-unit
-#                      step, so no walking crosses it), and at least 1.5
-#                      times the second-largest gap. The edge is that gap's
-#                      midpoint, to two decimals. Which part is above is
-#                      derived where the game's areas tell the levels apart
-#                      (the source names the game area of each level) and
-#                      rests on his words where they do not. A place he names
-#                      by height that fails the rule gets no band, and its
-#                      source says so. All of it is re-derived by -m archive.
+#                      region holds a position only with lo <= z < hi, and
+#                      ONLY WHERE A PLAYER STANDS (Story 4.23, the lead's
+#                      decision): a band is measured on players' ticks, so
+#                      it holds a tick, a death's victim and attacker and a
+#                      throw, and never a grenade's detonation, which may
+#                      burst in mid-air. A throw's position is the grenade's
+#                      first point, in the thrower's hand -- about 70 units
+#                      above his feet (Nuke lobby's throws: z -367 to -344
+#                      over a -416 floor, measured 2026-09-29). A detonation
+#                      falls to the next claim with no band, then to the
+#                      area's rest or the nearest half-cell, as the split's
+#                      form says.
+#                      THE BAND RULE, a lead decision of 2026-09-29 (Story
+#                      4.23) that SUPERSEDES Story 4.20's two-level rule and
+#                      keeps its numbers. The live ticks of the map inside a
+#                      band's regions are sorted by z and cut at the FEWEST
+#                      of their largest gaps such that each cut gap is at
+#                      least 36 units (twice the game's 18-unit step, so no
+#                      walking crosses it) and at least 1.5 times the largest
+#                      gap not cut; the levels between the cuts must then
+#                      each hold at least 5 ticks. A band exists only where
+#                      this gives two levels or more. Each band edge is the
+#                      midpoint of a cut gap, to two decimals, and a part on
+#                      a middle level carries a closed band [lower edge,
+#                      upper edge]. With one cut gap it is Story 4.20's
+#                      two-level rule unchanged: at least 5 ticks on each
+#                      side of the largest gap in their z, the gap at least
+#                      36 units and at least 1.5 times the second-largest
+#                      gap. The FEWEST and not every gap of 36 units:
+#                      cutting every such gap re-derives Anubis's -64.12
+#                      band differently (measured 2026-09-29). Which part is
+#                      on which level is derived where the game's areas tell
+#                      the levels apart (the source names the game area of
+#                      each level) and rests on his words where they do not.
+#                      A place he names by height that fails the rule gets
+#                      no band, and its source says so. All of it is
+#                      re-derived by -m archive.
 #                      words is his phrase the region is read from. A
 #                      position takes the FIRST part in table order whose
 #                      half-cell or region (and band) holds it -- table order
@@ -257,7 +291,7 @@ junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'huti
 neighbours = 5
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_nuke table: Catwalk confirmed 2026-09-26, 'vanha callout aikalailla synonyymi rafterille'"
-note = "Two game areas, one callout: merged with Rafters."
+note = "Three game areas, one callout: merged with Rafters and, since 2026-09-29, Crane."
 
 [de_nuke.Control]
 callout = "radio"
@@ -269,10 +303,13 @@ source = "project memory nuken-aluenimet; the first route model (reittimalli-<ow
 note = "Crossed on purpose: the game's Control is his radio and the game's Observation his control."
 
 [de_nuke.Crane]
-junction = false
+callout = "rafters"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'hutista ... rafterille' -- the game's Crane is his rafters, so the junction is rafters'"
 neighbours = 1
-confidence = "unnamed"
-source = "alueomistus-pohja-2026-09-26.md de_nuke: 'Not in his account (derived only)'; no guide callout in calloutit.md"
+confidence = "stated"
+source = "vastaukset-2026-09-29.md section 'His answer on the game's `Crane`, same day', his words: 'Tuo crane alue on varmaan A siten puolella oleva rafter' and 'Eli A:lla crane alue on hutin puolella oleva rafter ... Tämä palkki on nimeltään rafter ja se on siis heavenin ja t katon korkeudella noin': the hut-side beam of the A-site rafter, the place the game's Catwalk and Rafters already are (callout rafters). His first sentence carries the hedge 'varmaan', kept here; his next states it without one ('Eli A:lla crane alue on hutin puolella oleva rafter'), so it counts as his word and is stated. Before 2026-09-29: 'Not in his account (derived only)' (alueomistus-pohja-2026-09-26.md de_nuke)"
+note = "Three game areas, one callout: merged with Catwalk and Rafters."
 
 [de_nuke.Decon]
 callout = "sinkku"
@@ -328,6 +365,42 @@ junction_source = "the first route model (reittimalli-<owner>.md) Nuke T side, h
 neighbours = 10
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_nuke table: Lobby = lobby"
+note = "His word for the whole room (vastaukset-2026-09-29.md section 'Verbatim', answer 2: 'Miksi lobbystä tulee karkea?'), so it is not coarse. Since Story 4.23 the split below names a finer place inside it; every other position, and every rule row, stays lobby."
+
+[de_nuke.Lobby.split]
+image = "kartta12_sivu16_748x749.png"
+origin = [21.0, 21.0]
+cell = [43.0, 42.2]
+columns = "ABCDEFGHIJKLMNOP"
+rows = 17
+source = "The guide grid of the Nuke yard's split (Story 4.17), which every split of de_nuke shares; no zmin, because lobby lies on the upper floor the fit draws. A split of an area that is not coarse (Story 4.23, callouts.toml header): lobby is his word for the whole room, and the parts below are finer places inside it, so a position no part holds stays lobby and the nearest rule does not apply. His levels are drawn from eple, the lobby entrance, in vastaukset-2026-09-29.md section 'Verbatim', answer 2: ground level (Lobby maataso), the hattuhylly (hat shelf) on both sides, and the ladder from the hut entrance to the roof doorway and the T roof; measured in nuke-lobby-z-mitattu-2026-09-29.md, and by the band rule of the callouts.toml header on the archive, 2026-09-29. The 40 Lobby ticks at z -400 to -340, the first steps up in I11c, H11a, H11b, H11d and H10d (nuke-lobby-z-mitattu-2026-09-29.md), are not named by him and stay lobby."
+
+[de_nuke.Lobby.split.fit]
+sx = 0.10037037037037035
+sy = 0.10148148148148145
+bx = 353.75
+by = 360.0
+
+[[de_nuke.Lobby.split.parts]]
+callout = "hattuhylly"
+regions = [
+  { cell = "I10c", z = [-332.6, -216.29], words = "siinä on hattuhylly välissä" },
+  { cell = "I11c", z = [-332.6, -216.29], words = "siinä on hattuhylly välissä" },
+]
+junction = true
+junction_source = "holds positions of Lobby, whose entry is a junction: the first route model (reittimalli-<owner>.md) Nuke T side, his claims 'Lobbystä ovelta tai hutista A:lle' and 'Lobbystä rampille'"
+confidence = "inferred"
+source = "vastaukset-2026-09-29.md section 'Verbatim', answer 2, his words: 'Sen takia että siellä on eri z arvoja vai?' and his words: 'ne alkavat aivan hut sisäänkäynnin kohdalta ja siinä on hattuhylly välissä, minne pääsee poistumalla tikkaista siinä': the mid level of his sketch, between the lobby floor and the roof doorway, reached by stepping off the ladder, on both sides. His words name no half-cell: read 'hattuhylly välissä' as I10c, I11c -- the half-cells where the lead measured the mid level near z -290 (nuke-lobby-z-mitattu-2026-09-29.md) -- a reading of the lead's that moves 28 Lobby positions, so inferred until he confirms it (the 4.20 confidence rule). Height band measured, not guessed (the band rule of the callouts.toml header on the archive, 2026-09-29; the levels in nuke-lobby-z-mitattu-2026-09-29.md): the live ticks of the map inside I10c and I11c (549) fall in three levels. The two largest gaps are cut, from -377.23 to -287.97 (89.27 units) and from -260.61 to -171.97 (88.64), each at least 36 units and at least 1.5 times the largest gap not cut (-171.97 to -128.08, 43.89 units); the levels hold 486, 28 and 35 ticks. The band edges -332.6 and -216.29 are the two midpoints, to two decimals (re-derived under -m archive). The largest gap alone would not do: it is only 1.01 times the second, so the two-level rule refuses the place. The levels, bottom to top, are the game's Lobby (242 of 486, with Squeaky 158), Lobby (28 of 28) and Rafters (15 of 35, with Roof 14 and Crane 6); hattuhylly is the middle level. Which of the lower two is his shelf rests on his words, since one game area holds both. I10c alone shows the same three levels; I11c alone fails the rule (its top level holds one tick). Measured with I11a too, the rule gives only two levels (hutLadder's source), so the shelf on the ladder's other side, in I11a, is not in this band: a known limit. Junction basis: holds positions of Lobby"
+
+[[de_nuke.Lobby.split.parts]]
+callout = "hutLadder"
+regions = [
+  { cell = "I11a", z = [-337.36, inf], words = "tikkaat hutLadder I11a ja z koordinaatti paljastaa kun niitä kiivetään" },
+]
+junction = true
+junction_source = "holds positions of Lobby, whose entry is a junction: the first route model (reittimalli-<owner>.md) Nuke T side, his claims 'Lobbystä ovelta tai hutista A:lle' and 'Lobbystä rampille'"
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md, his words: 'lobbyn sisältä katolle menevät tikkaat hutLadder I11a ja z koordinaatti paljastaa kun niitä kiivetään': the ladder inside lobby up to the roof, in I11a, told apart by height while it is climbed; confirmed as the ladder from the hut entrance to the roof doorway and the T roof by vastaukset-2026-09-29.md section 'Verbatim', answer 2. Height band measured, not guessed (the band rule of the callouts.toml header on the archive, 2026-09-29; the levels in nuke-lobby-z-mitattu-2026-09-29.md): the live ticks of the map inside I11a (201) fall in two levels, the largest gap running from -382.81 to -291.91 (150 below, 51 above); the band edge -337.36 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap: 90.91 against 37.42) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's Crane (28 of 51 ticks above, with Lobby 18 and Roof 5), the lower the game's Lobby (136 of 150 below, with Hut 14); the ladder is the upper level, rising towards the roof doorway. The game's Crane is his rafters since 2026-09-29, so the level above the edge is dominated by the rafters beam's height (z -127.97); the split renames only Lobby positions, so the band names the 18 Lobby ticks among them hutLadder and leaves Crane, Roof and Hut their own names. The rule, extended to several levels in Story 4.23, still gives I11a two levels and not three: its largest gap alone meets the rule, and the next, from -254.02 to -216.59 (37.42 units), is not 1.5 times the largest gap that would stay uncut (32.00, from -127.97 to -95.97), so the ladder above the shelf is not a level of its own. The Lobby ticks above the edge include 12 at the shelf's height (-291.91 to -261.56); I11a's own levels do not separate them, so they stay hutLadder and not hattuhylly -- in I11a every Lobby position off the ground is hutLadder, as his 'kun niitä kiivetään' says. KNOWN LIMIT: 7 of those 12 lie exactly at -287.97, the shelf's floor, and his sketch puts the shelf on both sides of the ladder, so they are probably the shelf. Measured on I10c, I11c and I11a together (750 live ticks), the rule gives two levels and not three: the ladder's ticks fill the shelf's upper gap, the largest gap alone (-377.23 to -291.91, 85.33 units) is cut, and the next (37.42) is not 1.5 times 22.69 -- so no band separates the shelf in I11a, and hattuhylly stays I10c and I11c. Junction basis: holds positions of Lobby"
 
 [de_nuke.LockerRoom]
 callout = "lockers"
@@ -858,8 +931,8 @@ regions = [
 ]
 broad = true
 junction = false
-confidence = "inferred"
-source = "The whole of H3b rests on his answer after Story 4.20, puoliruudut-vastaus-2-2026-09-28.md section 'His answers after Story 4.20, evening 2026-09-28', answer 1, his words: 'vähän yli puolet ovat alempana elevatorissa ct ramp alueella', of his words: 'H3b:stä vajaa puolet yläreunasta on ylempänä shortissa, ja vähän yli puolet ovat alempana elevatorissa ct ramp alueella': the lower level, the ground of the ct ramp area, is elevator in all of H3b, the top part included; only short's raised level is not. I3a's corner rests on puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H3b alapuolisko ja I3a vasen nurkka (puolet korkeudesta ja leveydestä) on elevator' -- whose 'H3b alapuolisko' is kept as history: it gave H3b's bottom half only, and his later answer gives the whole. The corner is his own size, read as the bottom-left, continuing H3b's bottom half in the same row (A27). Broad: it yields to every earlier part it overlaps, so short a's raised level in H3b's top part is short a's. Confidence inferred: the bottom-left reading of I3a's corner moves 9 UnderA positions, and he has not confirmed it (the 4.20 confidence rule). Junction basis: holds positions of UnderA"
+confidence = "stated"
+source = "The whole of H3b rests on his answer after Story 4.20, puoliruudut-vastaus-2-2026-09-28.md section 'His answers after Story 4.20, evening 2026-09-28', answer 1, his words: 'vähän yli puolet ovat alempana elevatorissa ct ramp alueella', of his words: 'H3b:stä vajaa puolet yläreunasta on ylempänä shortissa, ja vähän yli puolet ovat alempana elevatorissa ct ramp alueella': the lower level, the ground of the ct ramp area, is elevator in all of H3b, the top part included; only short's raised level is not. I3a's corner rests on puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H3b alapuolisko ja I3a vasen nurkka (puolet korkeudesta ja leveydestä) on elevator' -- whose 'H3b alapuolisko' is kept as history: it gave H3b's bottom half only, and his later answer gives the whole. The corner is his own size, read as the bottom-left, continuing H3b's bottom half in the same row (A27). Broad: it yields to every earlier part it overlaps, so short a's raised level in H3b's top part is short a's. The bottom-left reading of I3a's corner moves 9 UnderA positions, so it was inferred until he confirmed it (the 4.20 confidence rule); he did, vastaukset-2026-09-29.md section 'Verbatim', answer 3, his words: 'Kyllä juurikin I3a:n vasen alanurkka', so elevator is stated. Junction basis: holds positions of UnderA"
 
 [[de_dust2.UnderA.split.parts]]
 callout = "short stairs"

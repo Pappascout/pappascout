@@ -1582,6 +1582,26 @@
         "seconds": 21.0
       },
       {
+        "area": "hutladder",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 27,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "hutladder",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
         "area": "kontakti",
         "matches": 4,
         "matches_m": 4,
@@ -1613,10 +1633,10 @@
       },
       {
         "area": "lobby",
-        "matches": 1,
+        "matches": 2,
         "matches_m": 4,
-        "n": 3,
-        "newest": false,
+        "n": 4,
+        "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 21.0
@@ -1625,7 +1645,7 @@
         "area": "lobby",
         "matches": 4,
         "matches_m": 4,
-        "n": 12,
+        "n": 11,
         "newest": true,
         "players": 1,
         "sample_kind": "time",
@@ -2012,6 +2032,26 @@
         "seconds": 24.0
       },
       {
+        "area": "hutladder",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "hutladder",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
         "area": "kontakti",
         "matches": 4,
         "matches_m": 4,
@@ -2065,7 +2105,7 @@
         "area": "lobby",
         "matches": 4,
         "matches_m": 4,
-        "n": 9,
+        "n": 10,
         "newest": true,
         "players": 1,
         "sample_kind": "time",
@@ -2075,7 +2115,7 @@
         "area": "lobby",
         "matches": 3,
         "matches_m": 4,
-        "n": 7,
+        "n": 6,
         "newest": false,
         "players": 2,
         "sample_kind": "time",
@@ -5172,6 +5212,26 @@
         "seconds": 42.0
       },
       {
+        "area": "hattuhylly",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "hattuhylly",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
         "area": "hellin portaat",
         "matches": 4,
         "matches_m": 4,
@@ -5263,9 +5323,9 @@
       },
       {
         "area": "lobby",
-        "matches": 3,
+        "matches": 4,
         "matches_m": 4,
-        "n": 3,
+        "n": 4,
         "newest": true,
         "players": 2,
         "sample_kind": "time",
@@ -5275,7 +5335,7 @@
         "area": "lobby",
         "matches": 1,
         "matches_m": 4,
-        "n": 2,
+        "n": 1,
         "newest": false,
         "players": 3,
         "sample_kind": "time",
@@ -5662,6 +5722,26 @@
         "seconds": 45.0
       },
       {
+        "area": "hattuhylly",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "hattuhylly",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
         "area": "heaven",
         "matches": 4,
         "matches_m": 4,
@@ -5743,21 +5823,11 @@
       },
       {
         "area": "lobby",
-        "matches": 3,
+        "matches": 4,
         "matches_m": 4,
-        "n": 3,
+        "n": 4,
         "newest": true,
         "players": 2,
-        "sample_kind": "time",
-        "seconds": 45.0
-      },
-      {
-        "area": "lobby",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
-        "newest": false,
-        "players": 3,
         "sample_kind": "time",
         "seconds": 45.0
       },
@@ -14832,7 +14902,7 @@
     ]
   },
   "areas_game_measured": "2026-09-25",
-  "areas_measured": "2026-09-27",
+  "areas_measured": "2026-09-29",
   "measured": "2026-09-24",
   "played": {
     "1e1965abbc06133b": {

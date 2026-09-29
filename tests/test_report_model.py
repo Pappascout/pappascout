@@ -4326,15 +4326,16 @@ def test_a_part_is_never_coarse_and_never_unnamed() -> None:
     assert PlacePart(callout="kontakti", flag="inferred").flag == "inferred"
 
 
-@pytest.mark.parametrize("flag", [None, "inferred", "no_callout", "no_table"])
-def test_only_a_coarse_place_has_parts(flag) -> None:
-    """The table splits only an area holding several of his callouts, so a
-    place that is not coarse cannot carry parts (review item 8); a coarse
-    one can, whether certain or inferred."""
-    parts = [PlacePart(callout="kontakti", flag=None)]
-    with pytest.raises(AggregateError, match="not coarse"):
-        PlaceName(area="Lobby", callout="lobby", flag=flag, parts=parts)
-    for coarse in ("coarse", "coarse_inferred"):
+@pytest.mark.parametrize("flag", ["no_callout", "no_table"])
+def test_only_a_place_with_a_callout_has_parts(flag) -> None:
+    """The table splits only an area it names (review item 8): a place in
+    the game's name cannot carry parts. A coarse place can, and since Story
+    4.23 so can one that is not coarse -- Nuke's *lobby*, whose parts are
+    finer places inside it -- whether certain or inferred."""
+    parts = [PlacePart(callout="hutladder", flag=None)]
+    with pytest.raises(AggregateError, match="Only an area the callout table"):
+        PlaceName(area="Lobby", callout="Lobby", flag=flag, parts=parts)
+    for named in ("coarse", "coarse_inferred", None, "inferred"):
         assert PlaceName(
-            area="Outside", callout="outside", flag=coarse, parts=parts
+            area="Lobby", callout="lobby", flag=named, parts=parts
         ).parts == parts

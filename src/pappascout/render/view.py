@@ -3534,6 +3534,11 @@ def _extends(longer: RoutePattern, shorter: RoutePattern) -> bool:
     return len(longer.path) > size and longer.path[:size] == shorter.path
 
 
+def _round_set(pattern: RoutePattern) -> set[tuple[str, int]]:
+    """The rounds a pattern was taken in, as (demo, round number)."""
+    return {(entry.map_demo_id, entry.round_no) for entry in pattern.rounds}
+
+
 def _route_pattern_lines(
     report_type: RoundTypeReport,
     min_n: int,
@@ -3567,25 +3572,23 @@ def _route_pattern_lines(
       map and side makes two rounds two maps. The default (Story 4.22) is
       in :data:`PATTERN_ROUND_TYPES`, so it takes the save types' rule.
     * **No redundant prefix** (decision 5, the second DECIDED rule 5): a
-      path a group **moved** along is printed only if it recurs in **more**
-      rounds than every printed **moved** path that extends it. **The rule
-      compares counts and assumes the rounds follow, and they need not**:
-      an extension's rounds are *not* always among its prefix's, because a
-      one-place prefix is not counted in a round where the whole side took
-      it (the division rule of
+      path a group **moved** along is hidden only when **every one of its
+      rounds** is among the rounds of a printed **moved** path that
+      extends it. **Round sets, not counts** (Story 4.23, measured in the
+      4.22 review): an extension's rounds are *not* always among its
+      prefix's, because a one-place prefix is not counted in a round where
+      the whole side took it (the division rule of
       :func:`~pappascout.domain.aggregate.route_patterns_for`) while its
       extension still is -- on the archive's Dust2 T default,
-      ``outside tunnels`` 6 rounds against its extension's 7. What holds in
-      the pinned data (``tests/data/route_patterns.json``) is an
-      **observation**: where a moved extension has at least its prefix's
-      count, the prefix's rounds are a subset of the extension's in every
-      pair but two, and in both of those the prefix is below its block's
-      printing threshold, so no printed row rests on the assumption.
-      ``tests/test_calibration.py`` records the two by name, so a third
-      fails. Compared
+      ``outside tunnels`` 6 rounds against its extension's 7. A count
+      comparison hid such a prefix on the count alone, although the rounds
+      it held apart from the extension were said nowhere else. Compared
       against **every** printed moved extension and not only the longest:
-      of ``A`` 4, ``A -> B`` 4 and ``A -> B -> C`` 3, ``A`` says nothing
-      ``A -> B`` does not, though it outnumbers the longest. A **stayed**
+      of ``A`` 4, ``A -> B`` 4 and ``A -> B -> C`` 3 on the same rounds,
+      ``A`` says nothing ``A -> B`` does not, though it outnumbers the
+      longest. The comparison may run over every recurring extension,
+      printed or not: a hidden one's rounds are among a printed one's, and
+      the subset relation carries over. A **stayed**
       extension does not count: it is the players last seen alive there, a
       part of the group, and cannot stand in for the group that went on. A
       stayed path is never suppressed either, for the same reason the other
@@ -3605,7 +3608,7 @@ def _route_pattern_lines(
             not pattern.stayed
             and not other.stayed
             and _extends(other, pattern)
-            and other.n >= pattern.n
+            and _round_set(pattern) <= _round_set(other)
             for other in recurring
         )
     ]
