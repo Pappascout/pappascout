@@ -2223,7 +2223,7 @@ def _round_paths(
     """Every round's per-player junction paths: the one route engine.
 
     :func:`routes_for` builds the pistol's trees from these and
-    :func:`route_patterns_for` the patterns (Stories 4.14 and 4.19), so the
+    :func:`route_patterns_for` the patterns (Stories 4.14, 4.19, 4.22), so the
     junction compression, the callouts, the flags and the alternation are
     the same code for both.
 
@@ -2341,11 +2341,12 @@ def route_patterns_for(
     newest: str | None,
     callouts: MapCallouts | None = None,
 ) -> list[RoutePattern]:
-    """The junction paths a block's rounds repeat (Stories 4.14 and 4.19).
+    """The junction paths a block's rounds repeat (Stories 4.14, 4.19, 4.22).
 
     Built for every :data:`~pappascout.domain.report.ROUTE_PATTERN_ROUND_TYPES`
-    block -- the save types and, since Story 4.19, the pistol -- with the
-    same rules for each; the caller decides the scope.
+    block -- the save types, the pistol since Story 4.19 and the default
+    since Story 4.22 -- with the same rules for each; the caller decides the
+    scope.
 
     **The pistol's route engine and not a second one**: every player's path
     is :func:`_junction_path`'s, from :func:`_round_paths`, so a pattern
@@ -2379,6 +2380,21 @@ def route_patterns_for(
 
     A pattern names no pattern and claims no intent (rule 6): it says which
     places a number of players were seen at, in order.
+
+    **Two known limits, Story 4.14's behaviour, stated and not changed**
+    (Story 4.22's review; changing either would move the pinned save
+    blocks):
+
+    * **A one-place path's count leaves out its whole-side rounds**, while
+      its extensions keep them. So a prefix's rounds are not always among
+      its extension's -- on the archive's Dust2 T default ``outside
+      tunnels`` has 6 against its extension's 7 -- and ``render``'s prefix
+      rule, which compares counts, is recorded against the pinned data in
+      ``tests/test_calibration.py``.
+    * **``side`` is ``len(paths)``**, every sampled player of the round,
+      including one who reaches no junction and so has no route here. A
+      group of the players who did reach one can then pass as a division
+      of the side when it is all of them.
 
     Args:
         rows, ticks, deaths, lineup_keys, callouts: As :func:`routes_for`.
@@ -4171,9 +4187,9 @@ def _round_types_for(
                 first_contact=first_contact_areas(named.ticks, keys, newest),
                 deaths=deaths_for(named.deaths, keys, lineup_keys),
                 # Only the pistol type has routes (Story 4.11's scope, and
-                # the model refuses them elsewhere), and only the save types
-                # and the pistol have patterns (Stories 4.14 and 4.19). The
-                # conditions are here and not
+                # the model refuses them elsewhere), and only the save types,
+                # the pistol and the default have patterns (Stories 4.14,
+                # 4.19 and 4.22). The conditions are here and not
                 # inside the functions, so each does one thing and the scope
                 # is stated where the scope is decided.
                 routes=(

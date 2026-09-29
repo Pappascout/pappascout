@@ -3641,6 +3641,21 @@ def test_only_the_pistol_type_may_carry_routes() -> None:
         )
 
 
+def test_a_default_block_has_patterns_and_no_trees() -> None:
+    """Story 4.22, decision 3, in the model: the default carries route
+    patterns since 21.0.0 and still no per-round routes -- the guard the
+    report's layout rests on, as a default block has too many rounds for a
+    tree each."""
+    block = _save_block([_pattern()], round_type="full").model_dump()
+    assert block["route_patterns"]
+    block["routes"] = [
+        RoundRoute(map_demo_id="d0", round_no=n, won=False).model_dump()
+        for n in range(1, block["sample"]["rounds"] + 1)
+    ]
+    with pytest.raises(AggregateError, match="only pistol reports them"):
+        RoundTypeReport.model_validate(block)
+
+
 def test_a_block_lists_one_route_for_every_round_of_its_sample() -> None:
     """A round missing from the list is a round the reader never sees.
 
@@ -3985,18 +4000,26 @@ def test_the_round_type_report_requires_its_route_patterns() -> None:
 
 
 def test_only_the_pattern_types_may_carry_route_patterns() -> None:
-    """The scope, in the model: eco, force and half (Story 4.14) and the
-    pistol beside its own rows (Story 4.19); a full buy, refused."""
+    """The scope, in the model: eco, force and half (Story 4.14), the
+    pistol beside its own rows (Story 4.19) and the default (Story 4.22);
+    overtime and an anomaly, refused."""
     for name in ROUTE_PATTERN_ROUND_TYPES:
         assert _save_block([_pattern()], round_type=name).route_patterns
     assert _save_block([_pattern()], round_type=ROUTE_ROUND_TYPE).routes
-    with pytest.raises(AggregateError, match="route patterns, but only pistol"):
-        _save_block([_pattern()], round_type="full")
+    for name in ("ot", "anomaly"):
+        with pytest.raises(
+            AggregateError, match="route patterns, but only pistol, .*, full"
+        ):
+            _save_block([_pattern()], round_type=name)
 
 
-def test_the_pattern_round_types_are_the_pistol_and_the_saving_ones() -> None:
-    """Two existing names and not a second copy of either."""
-    assert ROUTE_PATTERN_ROUND_TYPES == (ROUTE_ROUND_TYPE, *SAVING_ROUND_TYPES)
+def test_the_pattern_round_types_are_the_pistol_the_saving_ones_and_full() -> None:
+    """Two existing names and the default, and not a second copy of either."""
+    assert ROUTE_PATTERN_ROUND_TYPES == (
+        ROUTE_ROUND_TYPE,
+        *SAVING_ROUND_TYPES,
+        "full",
+    )
 
 
 def test_a_pattern_taken_in_more_rounds_than_the_block_is_refused() -> None:

@@ -503,7 +503,14 @@ __all__ = [
 #: the map's pistol rounds* -- an observation nobody made. The other way
 #: round, a 20.0.0 file's pistol patterns are refused by a 19.0.0 model's
 #: :meth:`RoundTypeReport._check_route_patterns_fit_the_block`.
-REPORT_SCHEMA_VERSION = "20.0.0"
+#:
+#: **21.0.0 (Story 4.22): the default block carries the routes it repeats.**
+#: Meaning-only, for 20.0.0's reason one type over: a 20.0.0 file's default
+#: ``[]`` would validate and be read as *no path recurred across the map's
+#: default rounds*, where it meant that the type reported none. The other
+#: way round, a 21.0.0 file's default patterns are refused by a 20.0.0
+#: model's :meth:`RoundTypeReport._check_route_patterns_fit_the_block`.
+REPORT_SCHEMA_VERSION = "21.0.0"
 
 #: What the newest version changed, in one sentence, for the message a stage
 #: refuses an old ``report.json`` with.
@@ -530,10 +537,10 @@ REPORT_SCHEMA_VERSION = "20.0.0"
 #: English, like every other line the CLI prints (AD-11). It never reaches
 #: the report.
 REPORT_SCHEMA_CHANGE = (
-    "Version 20.0.0 lists the routes a pistol block repeats across its rounds, "
-    "as the eco, force and half-buy blocks already do; an older report's "
-    "pistol block holds none and would read as one whose rounds shared no "
-    "route, which this version refuses."
+    "Version 21.0.0 lists the routes a default block repeats across its "
+    "rounds, as the pistol, eco, force and half-buy blocks already do; an "
+    "older report's default block holds none and would read as one whose "
+    "rounds shared no route, which this version refuses."
 )
 
 
@@ -2241,9 +2248,14 @@ class RoundRoute(_Node):
 #: a copy here could drift from either. The pistol keeps its round-by-round
 #: :attr:`RoundTypeReport.routes` beside its patterns; the patterns are the
 #: summary across them.
+#:
+#: **The default (``full``) since Story 4.22**, under the same rules and its
+#: block's own threshold, as a filtered type; it has patterns and no trees.
+#: ``full`` is spelled here because no constant names the default alone.
 ROUTE_PATTERN_ROUND_TYPES: tuple[str, ...] = (
     ROUTE_ROUND_TYPE,
     *SAVING_ROUND_TYPES,
+    "full",
 )
 
 
@@ -2301,8 +2313,8 @@ class RoutePatternRound(_Node):
 class RoutePattern(_Node):
     """A junction path that recurs across a block's rounds.
 
-    Story 4.14, extended to the pistol by Story 4.19
-    (:data:`ROUTE_PATTERN_ROUND_TYPES`). Each player's path in such a round
+    Story 4.14, extended to the pistol by Story 4.19 and to the default by
+    Story 4.22 (:data:`ROUTE_PATTERN_ROUND_TYPES`). Each player's path in such a round
     is the pistol's junction path, started at its first junction that is not a
     spawn (:func:`~pappascout.domain.aggregate.route_patterns_for` has the
     rules); the players sharing a stretch from that start are a group, and
@@ -2456,8 +2468,8 @@ class RoundTypeReport(_Node):
     #: The junction paths that recur across this block's rounds, in the
     #: order :func:`~pappascout.domain.aggregate.route_patterns_for` gives
     #: them -- and empty on every type but
-    #: :data:`ROUTE_PATTERN_ROUND_TYPES` (Stories 4.14 and 4.19). Required,
-    #: for :data:`REPORT_SCHEMA_VERSION`'s 17.0.0 reason.
+    #: :data:`ROUTE_PATTERN_ROUND_TYPES` (Stories 4.14, 4.19, 4.22).
+    #: Required, for :data:`REPORT_SCHEMA_VERSION`'s 17.0.0 reason.
     route_patterns: list[RoutePattern]
 
     @model_validator(mode="after")
@@ -2724,8 +2736,8 @@ class RoundTypeReport(_Node):
 
         * **A pattern on a type that reports none.** The scope is
           :data:`ROUTE_PATTERN_ROUND_TYPES` -- Story 4.14's save types and,
-          since Story 4.19, the pistol; a default block's patterns are the
-          product owner's to ask for later.
+          since Story 4.19, the pistol and, since Story 4.22, the default;
+          overtime and an anomaly report none.
         * **More rounds or matches than the block holds.** The line prints
           ``n/m kierroksesta, k/K ottelussa`` with ``m`` and ``K`` read off
           this block's sample, so a pattern exceeding either would print a

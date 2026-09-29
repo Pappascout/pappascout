@@ -589,7 +589,7 @@ ROUTE_ARROW = "->"
 #: the indentation away. See :func:`_route_rows`.
 ROUTE_INDENT = "  "
 
-#: The label of a block's recurring route (Stories 4.14 and 4.19):
+#: The label of a block's recurring route (Stories 4.14, 4.19, 4.22):
 #: ``Reitti: outside -> lobby -> radio, 3 pelaajaa (3/7 kierroksesta, ...)``.
 #:
 #: A label and not a sentence, so the line reads as one of the block's rows
@@ -1080,7 +1080,8 @@ class RoundTypeView:
     #: is what the product owner asked of these blocks, and the sample-point
     #: rows stay under it as they were. On a pistol block (Story 4.19) they
     #: come before :attr:`routes` too, the summary before the rounds, as in
-    #: his example. Empty on every type but
+    #: his example. A default block (Story 4.22) has them and no trees.
+    #: Empty on every type but
     #: :data:`~pappascout.domain.report.ROUTE_PATTERN_ROUND_TYPES`, and on
     #: such a block where nothing recurred.
     patterns: tuple[Line, ...] = ()
@@ -1356,7 +1357,7 @@ class _Flags:
     #: Raised in :func:`build_view` for the routes and by
     #: :class:`_Places` for every other row.
     route_no_table: list[str] = field(default_factory=list)
-    #: A block printed a recurring route (Stories 4.14 and 4.19), so the
+    #: A block printed a recurring route (Stories 4.14, 4.19, 4.22), so the
     #: guide explains those rows -- only then, for :attr:`routes_shown`'s
     #: reason.
     route_patterns_shown: bool = False
@@ -3563,12 +3564,25 @@ def _route_pattern_lines(
       The pistol is not in :data:`PATTERN_ROUND_TYPES` (the complement of
       :data:`PROTECTED_ROUND_TYPES`), so its block filters nothing, ``min_n``
       is one, and the model's floor of two rounds decides. One pistol per
-      map and side makes two rounds two maps.
+      map and side makes two rounds two maps. The default (Story 4.22) is
+      in :data:`PATTERN_ROUND_TYPES`, so it takes the save types' rule.
     * **No redundant prefix** (decision 5, the second DECIDED rule 5): a
       path a group **moved** along is printed only if it recurs in **more**
-      rounds than every printed **moved** path that extends it. An
-      extension's rounds are always among its prefix's, so an equal count
-      is the same rounds, and the extension already says it. Compared
+      rounds than every printed **moved** path that extends it. **The rule
+      compares counts and assumes the rounds follow, and they need not**:
+      an extension's rounds are *not* always among its prefix's, because a
+      one-place prefix is not counted in a round where the whole side took
+      it (the division rule of
+      :func:`~pappascout.domain.aggregate.route_patterns_for`) while its
+      extension still is -- on the archive's Dust2 T default,
+      ``outside tunnels`` 6 rounds against its extension's 7. What holds in
+      the pinned data (``tests/data/route_patterns.json``) is an
+      **observation**: where a moved extension has at least its prefix's
+      count, the prefix's rounds are a subset of the extension's in every
+      pair but two, and in both of those the prefix is below its block's
+      printing threshold, so no printed row rests on the assumption.
+      ``tests/test_calibration.py`` records the two by name, so a third
+      fails. Compared
       against **every** printed moved extension and not only the longest:
       of ``A`` 4, ``A -> B`` 4 and ``A -> B -> C`` 3, ``A`` says nothing
       ``A -> B`` does not, though it outnumbers the longest. A **stayed**
@@ -5826,18 +5840,43 @@ def _legend(
             "viimeinen kohta on siis viimeinen havainto eikä kierroksen "
             "loppu, eikä rivi väitä mitään sen jälkeisestä ajasta."
         )
-    # THE BLOCKS' ROUTES (Stories 4.14 and 4.19), only where one printed.
-    # The wording is the implementation's and awaits the product owner's
-    # word. Story 4.19 added the pistol to its first words, named the trees
-    # the path is read like, and said that one player's path in a tree is
-    # not counted by an unmarked row.
+    # THE BLOCKS' ROUTES (Stories 4.14, 4.19 and 4.22), only where one
+    # printed. The wording is the implementation's and awaits the product
+    # owner's word. Story 4.19 added the pistol to its first words, named the
+    # trees the path is read like, and said that one player's path in a tree
+    # is not counted by an unmarked row; Story 4.22 added the default, read
+    # the paragraph as true of a block with no trees, and said where the
+    # sampling ends -- the last sample point the report holds, so an
+    # adjusted grid shows here. Measured 2026-09-29 on the recorded teams:
+    # of the default rounds' players last seen alive past a junction, 631
+    # of 747 (84.5 %) were last seen at 45 s, so "jää" on a long round is
+    # mostly the cutoff and not the round's end.
     if flags.route_patterns_shown:
+        last_point = max(
+            (
+                position.seconds
+                for map_report in report.maps
+                for side_report in map_report.sides
+                for type_report in side_report.round_types
+                for position in type_report.positions
+                if position.seconds is not None
+            ),
+            default=None,
+        )
+        cutoff = (
+            ""
+            if last_point is None
+            else f"Näytepisteet loppuvat kohtaan {seconds_label(last_point)} s, "
+            f'joten pitkällä kierroksella "{ROUTE_PATTERN_STAYED}" tarkoittaa '
+            "yleensä, että pelaajat olivat paikassa viimeisellä "
+            "näytepisteellä, eikä kierroksen lopussa. "
+        )
         notes.append(
-            f'"{ROUTE_PATTERN_LABEL}:" pistooli-, eco-, force- ja '
-            "puoliostolohkon alussa "
+            f'"{ROUTE_PATTERN_LABEL}:" pistooli-, eco-, force-, puoliosto- ja '
+            "default-lohkon alussa "
             "on reitti, jonka joukkue kulki lohkon kierroksilla useammin "
-            "kuin kerran. Jokaisen pelaajan reitti luetaan kuten "
-            "pistoolikierrosten reittipuissa -- risteykset ja viimeinen havainto "
+            "kuin kerran. Jokaisen pelaajan reitti luetaan samoin kuin "
+            "pistoolilohkon reittipuu -- risteykset ja viimeinen havainto "
             "calloutteina -- mutta se alkaa ensimmäisestä risteyksestä, joka "
             "ei ole spawn: sitä edeltävät paikat riippuvat vain siitä, missä "
             "pelaaja sattui olemaan ensimmäisellä näytepisteellä. Pelaaja, "
@@ -5851,8 +5890,10 @@ def _legend(
             "paikassa -- se on viimeinen havainto eikä kerro aikeista. "
             "Yhden pelaajan reitti on mukana vain tällaisena. Siksi "
             "merkitsemätön rivi laskee vain kierrokset, joilla vähintään kaksi "
-            "pelaajaa kulki reitin yhdessä: kierros, jonka reittipuussa sen "
-            "kulki yksi pelaaja, ei ole luvussa mukana. Yhden paikan "
+            "pelaajaa kulki reitin yhdessä: kierros, jolla sen kulki vain "
+            "yksi pelaaja, ei ole luvussa mukana. "
+            f"{cutoff}"
+            "Yhden paikan "
             "reitti on mukana vain, kun siinä on osa puolen pelaajista eikä "
             "koko puoli. Rivi tulostuu, kun reitti toistuu vähintään yhtä "
             "monella kierroksella kuin lohkon muutkin kuviot vaativat ja "

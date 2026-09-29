@@ -3689,10 +3689,11 @@ def test_the_recorded_routes_show_the_newest_match_taking_a_new_way() -> None:
         )
 
 
-#: Every pattern block's route patterns on the real archive (Stories 4.14 and
-#: 4.19), **re-pinned by running** :func:`_pattern_blocks_from` on
-#: 2026-09-27, and not copied from the story's documents. Story 4.19 added
-#: the pistol blocks; the save blocks were left byte-identical.
+#: Every pattern block's route patterns on the real archive (Stories 4.14,
+#: 4.19 and 4.22), **re-pinned by running** :func:`_pattern_blocks_from` on
+#: 2026-09-29, and not copied from the story's documents. Story 4.19 added
+#: the pistol blocks and Story 4.22 the default blocks; each time the blocks
+#: already pinned were left byte-identical.
 #:
 #: Two halves per block, and each pins something the other cannot. ``lines``
 #: is what the report prints -- the threshold, the redundant prefix and the
@@ -3700,8 +3701,9 @@ def test_the_recorded_routes_show_the_newest_match_taking_a_new_way() -> None:
 #: three unpinned. ``patterns`` is every path of two rounds or more that
 #: ``report.json`` holds, printed or not, with its rounds -- so a change in
 #: what ``aggregate`` finds fails here even when it moves nothing above the
-#: threshold. **Every** pistol, eco, force and half block of the recorded
-#: teams is a key (the pistol since Story 4.19), an empty one included, for
+#: threshold. **Every** pistol, eco, force, half and default block of the
+#: recorded teams is a key (the pistol since Story 4.19, the default since
+#: Story 4.22), an empty one included, for
 #: :data:`PISTOL_ROUTES`' reason: a block that appears must fail as loudly
 #: as one that changes.
 #:
@@ -3787,6 +3789,48 @@ def test_the_archives_route_patterns_are_the_ones_recorded() -> None:
     root = require_parsed(*RECORDED_DEMOS)
     assert len(ROUTE_PATTERNS) >= 14, sorted(ROUTE_PATTERNS)
     assert _pattern_blocks_from(root) == ROUTE_PATTERNS
+
+
+#: The pinned pairs where a moved extension has at least its prefix's
+#: count but not all of its rounds (Story 4.22's review, measured
+#: 2026-09-29): the one-place division rule drops a whole-side round from
+#: the prefix and not from the extension. ``render`` suppresses such a
+#: prefix on the count alone (``view._route_pattern_lines``), so each is
+#: recorded here with the fact that makes it harmless: it does not print.
+SUPPRESSED_PREFIXES_NOT_SUBSETS = {
+    ("1e1965abbc06133b/de_inferno/T/full", ("alamidi",)),
+    ("1e1965abbc06133b/de_nuke/CT/force", ("hell",)),
+}
+
+
+def test_a_suppressed_prefix_s_rounds_are_its_extensions_bar_two() -> None:
+    """The relation ``_route_pattern_lines``' prefix rule rests on, as an
+    observation over the pinned data and not a claim: where a moved
+    extension has at least its prefix's count, the prefix's rounds are
+    among the extension's, except in the recorded pairs, none of which
+    prints. A new exception fails here, and so does one that starts to
+    print."""
+    found = set()
+    for key, block in ROUTE_PATTERNS.items():
+        moved = [p for p in block["patterns"] if not p["stayed"]]
+        for prefix in moved:
+            size = len(prefix["path"])
+            ours = {tuple(r[:2]) for r in prefix["rounds"]}
+            for longer in moved:
+                theirs = {tuple(r[:2]) for r in longer["rounds"]}
+                if (
+                    len(longer["path"]) > size
+                    and longer["path"][:size] == prefix["path"]
+                    and len(theirs) >= len(ours)
+                    and not ours <= theirs
+                ):
+                    names = tuple(place[0] for place in prefix["path"])
+                    found.add((key, names))
+                    label = f"Reitti: {' -> '.join(names)},"
+                    assert not any(
+                        line.startswith(label) for line in block["lines"]
+                    ), (key, names)
+    assert found == SUPPRESSED_PREFIXES_NOT_SUBSETS
 
 
 def test_the_recorded_patterns_show_the_nuke_force_lobby_route() -> None:

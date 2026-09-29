@@ -10199,6 +10199,89 @@ def test_a_pistol_route_on_two_maps_prints_before_the_rounds() -> None:
     assert "kaksi pelaajaa kulki reitin yhdessä" in guide, guide
 
 
+def test_a_default_route_prints_at_the_blocks_own_threshold() -> None:
+    """Story 4.22. The default is a filtered type, so its block's own
+    threshold decides, as on a force block (decision 2): two rounds of four
+    do not print and three of seven do. The line opens the block (decision
+    3). That no per-round tree follows is the model's to guard -- it
+    refuses routes on every type but the pistol
+    (``test_report_model.test_only_the_pistol_type_may_carry_routes``)."""
+    two = [pattern(["outside", "lobby"], [3, 3], newest=True)]
+    assert pattern_lines(pattern_block(two, rounds=4, name="full")) == []
+    three = [pattern(["outside", "lobby"], [3, 3, 3], newest=True)]
+    default = pattern_block(three, rounds=7, name="full")
+    assert pattern_lines(default) == pattern_lines(
+        pattern_block(three, rounds=7, name="force")
+    )
+    assert pattern_lines(default) == [
+        f"- {ROUTE_PATTERN_LABEL}: outside {ROUTE_ARROW} lobby, 3 pelaajaa "
+        f"(3/7 kierroksesta, 3/4 {MATCH_SAMPLE_UNIT}, {RECENCY_NEWEST_INCLUDED})"
+    ]
+    lines = render(default).splitlines()
+    first = lines.index(pattern_lines(default)[0])
+    assert lines[first - 1].startswith("**T-puoli**"), lines[first - 1]
+
+
+def test_a_default_route_says_whether_the_newest_match_took_it() -> None:
+    """Story 4.22, the recency half of his two numbers on a default block:
+    the model's ``newest`` prints as the mark, either way."""
+    for newest, mark in (
+        (True, RECENCY_NEWEST_INCLUDED),
+        (False, RECENCY_NEWEST_ABSENT),
+    ):
+        entry = pattern_block(
+            [pattern(["outside", "lobby"], [3, 3, 3], newest=newest)],
+            name="full",
+        )
+        (only,) = pattern_lines(entry)
+        assert only.endswith(f", {mark})"), only
+
+
+def test_the_guide_names_every_pattern_type_and_where_sampling_ends() -> None:
+    """Story 4.22, decision 6 and the review: the paragraph's list of blocks
+    is exactly the five pattern types, so none can drop out and the list
+    cannot be padded; it reads true of a block with no trees; and it says
+    that the sampling ends at the report's last sample point, so a stayed
+    mark on a long round is that point and not the round's end."""
+    entry = pattern_block(
+        [pattern(["outside", "lobby"], [3, 3, 3], newest=True)], name="full"
+    )
+    entry.maps[0].sides[0].round_types[0].positions.append(
+        Position(
+            sample_kind="time",
+            seconds=45.0,
+            m=7,
+            matches_m=4,
+            rounds_missing=0,
+            areas=[
+                AreaDistribution(
+                    area="Lobby",
+                    m=7,
+                    matches_m=4,
+                    players_dist=[
+                        PlayersCount(players=3, n=7, matches=4, newest=None),
+                    ],
+                )
+            ],
+        )
+    )
+    # An earlier point too, so the sentence has to name the last one.
+    positions = entry.maps[0].sides[0].round_types[0].positions
+    positions.insert(0, positions[0].model_copy(update={"seconds": 15.0}))
+    lines = render(entry).splitlines()
+    (guide,) = [l for l in lines if l.startswith(f'- "{ROUTE_PATTERN_LABEL}:"')]
+    assert guide.startswith(
+        f'- "{ROUTE_PATTERN_LABEL}:" pistooli-, eco-, force-, puoliosto- ja '
+        "default-lohkon alussa on reitti, "
+    ), guide
+    assert "reittipuussa" not in guide and "reittipuissa" not in guide, guide
+    assert "kierros, jolla sen kulki vain yksi pelaaja" in guide, guide
+    assert (
+        "Näytepisteet loppuvat kohtaan 45 s, joten pitkällä kierroksella "
+        f'"{ROUTE_PATTERN_STAYED}" tarkoittaa yleensä'
+    ) in guide, guide
+
+
 def test_the_guide_explains_the_patterns_only_when_one_printed() -> None:
     """The paragraph for a row the report shows, and not otherwise."""
     marker = f'"{ROUTE_PATTERN_LABEL}:"'

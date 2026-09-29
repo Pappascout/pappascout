@@ -5616,18 +5616,20 @@ def test_patterns_are_most_rounds_first() -> None:
 
 
 def test_the_block_carries_its_patterns_and_only_pattern_types_do() -> None:
-    """``build_report`` fills ``route_patterns`` on eco, force and half and,
-    since Story 4.19, on the pistol -- by the same rules, so the same rounds
-    give the same paths -- and leaves every other type empty: the scope
-    stated where it is decided. The pistol keeps its per-round routes."""
+    """``build_report`` fills ``route_patterns`` on eco, force and half,
+    since Story 4.19 on the pistol and since Story 4.22 on the default -- by
+    the same rules, so the same rounds give the same paths -- and leaves
+    every other type empty: the scope stated where it is decided. The pistol
+    keeps its per-round routes, and the default has none."""
     rows = (
         [classified_row("Nuke_vs_a", n, round_type="force") for n in (3, 4)]
         + [classified_row("Nuke_vs_a", n, round_type="pistol") for n in (1, 13)]
         + [classified_row("Nuke_vs_a", n, round_type="full") for n in (5, 6)]
+        + [classified_row("Nuke_vs_a", n, round_type="ot") for n in (25, 26)]
     )
     ticks = [
         row
-        for n in (1, 3, 4, 5, 6, 13)
+        for n in (1, 3, 4, 5, 6, 13, 25, 26)
         for row in route_ticks("Nuke_vs_a", n, THREE_TO_RAMP)
     ]
     report = report_for(rows, ticks, callouts={"de_nuke": NUKE})
@@ -5640,7 +5642,13 @@ def test_the_block_carries_its_patterns_and_only_pattern_types_do() -> None:
     ]
     assert [[r.round_no for r in p.rounds] for p in pistol] == [[1, 13]] * 2
     assert len(by_type["pistol"].routes) == 2
-    assert by_type["full"].route_patterns == []
+    full = by_type["full"].route_patterns
+    assert [(p.path, p.stayed) for p in full] == [
+        (p.path, p.stayed) for p in by_type["force"].route_patterns
+    ]
+    assert [[r.round_no for r in p.rounds] for p in full] == [[5, 6]] * 2
+    assert by_type["full"].routes == []
+    assert by_type["ot"].route_patterns == []
     assert by_type["force"].routes == []
 
 
