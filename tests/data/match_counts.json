@@ -2492,6 +2492,26 @@
         "seconds": 27.0
       },
       {
+        "area": "b site",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "b site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
         "area": "cross",
         "matches": 4,
         "matches_m": 4,
@@ -2978,26 +2998,6 @@
         "n": 1,
         "newest": false,
         "players": 2,
-        "sample_kind": "time",
-        "seconds": 27.0
-      },
-      {
-        "area": "tunnels",
-        "matches": 4,
-        "matches_m": 4,
-        "n": 26,
-        "newest": true,
-        "players": 0,
-        "sample_kind": "time",
-        "seconds": 27.0
-      },
-      {
-        "area": "tunnels",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
-        "newest": false,
-        "players": 1,
         "sample_kind": "time",
         "seconds": 27.0
       },

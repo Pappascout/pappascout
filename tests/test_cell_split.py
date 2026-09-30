@@ -955,10 +955,21 @@ _WHOLE = (0.0, 1.0)
 #: half by half corner (his own corner size, "puolet korkeudesta ja
 #: leveydestä").
 _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
-    # Story 4.24, the lead's region C6d (decision 6): the rafter's ring,
-    # "Rafteri kiertää koko siten ympäri", closes along the lower half, as
-    # his bottom leg does in D6c ("alapuoliskossa").
-    ("rafteri kiertää koko siten ympäri", (_WHOLE, (0.5, 1.0))),
+    # Story 4.25, his B site answers of 2026-09-30 (vastaus-bsite-2-2026-09-
+    # 30.md). His "rivi 7 yläreunasta noin pixeli tai reilu", about a pixel or
+    # a little more from row 7's top edge, read as the top tenth (the lead's
+    # decision 2) -- before "yläreuna", which it contains.
+    ("rivi 7 yläreunasta noin pixeli tai reilu", (_WHOLE, (0.0, 0.1))),
+    # His bottom straight "about D6d to C6c" runs along the lower half, as
+    # his "D6c,D6d ... alapuoliskossa" of 2026-09-29 says (decision 2).
+    ("bottom straigt section is about d6d to c6c", (_WHOLE, (0.5, 1.0))),
+    # His leg runs "D6d riviin saakka"; with the box in D6d's top-right
+    # corner (his 3.8), the rest of its top half at the rafter's height is
+    # b rafters by his 3.2 "Jos ne ovat rafterin korkeudella ne ovat
+    # raftereita": the top-left quarter (decision 4, review round 1).
+    ("d6d riviin saakka", ((0.0, 0.5), (0.0, 0.5))),
+    # A corner he did not quantify: half by half (the size rule).
+    ("oikeasta yläkulmasta", ((0.5, 1.0), (0.0, 0.5))),
     # Story 4.24, his B site answer (vastaus-lobby-bsite-2026-09-29.md). The
     # phrases that read a fraction by what the next place leaves, first:
     # E6a's bottom third is where the stairs start, so tuplaovet is the rest.
@@ -968,13 +979,9 @@ _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
     # C7b is vent "samalla kulutuksella kuin D7a": D7a's second fifth.
     ("samalla kulutuksella kuin d7a", (_WHOLE, (0.2, 0.4))),
     ("toista viidennestä ylhäältä", (_WHOLE, (0.2, 0.4))),
-    # "vähän yli puolisko", a little over half, unquantified: read as 0.6.
-    ("vasen vähän yli puolisko", ((0.0, 0.6), _WHOLE)),
     ("alakolmannes", (_WHOLE, (2 / 3, 1.0))),
     ("ala kolmannes", (_WHOLE, (2 / 3, 1.0))),
     ("yläkolmannes", (_WHOLE, (0.0, 1 / 3))),
-    ("oikea kolmannes", ((2 / 3, 1.0), _WHOLE)),
-    ("oikea puolisko", ((0.5, 1.0), _WHOLE)),
     ("vasen alanurkka", ((0.0, 0.5), (0.5, 1.0))),
     # A3: "yläreuna crossia ja alapuolisko yläbanaania" -- the top is the
     # half the bottom half leaves (the lead's reading, not the edge rule).
@@ -998,7 +1005,6 @@ _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
     ("ylin viidesosa", (_WHOLE, (0.0, 0.2))),
     # A27: his "vasen nurkka", read as the bottom-left.
     ("puolet korkeudesta ja leveydestä", ((0.0, 0.5), (0.5, 1.0))),
-    ("vasemmassa alanurkassa", ((0.0, 0.5), (0.5, 1.0))),
     ("vasen yläkulma", ((0.0, 0.5), (0.0, 0.5))),
     ("vasen ylänurkka", ((0.0, 0.5), (0.0, 0.5))),
     ("oikea ylänurkka", ((0.5, 1.0), (0.0, 0.5))),
@@ -1139,11 +1145,12 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
             ), part.callout
             # The measurement document the band came from: zbands (Story
             # 4.20), for Nuke's lobby the lobby's own (Story 4.23), for
-            # Nuke's lower floor the B site tables (Story 4.24).
+            # Nuke's lower floor the B site tables (Story 4.24) and, for its
+            # re-measurement of 2026-09-30, Story 4.25's spec.
             assert re.search(
                 r"Height band measured, not guessed \([^)]*"
                 r"(?:zbands-mitattu-2026-09-28|nuke-lobby-z-mitattu-2026-09-29"
-                r"|bsite-taulukot-2026-09-29)"
+                r"|bsite-taulukot-2026-09-29|spec-4-25-b-site-confirmed)"
                 r"\.md",
                 part.source,
             ), part.callout
@@ -1716,7 +1723,7 @@ def test_an_infinite_height_is_no_position_on_any_floor(area: str, bad: float) -
 #: A part's source that names the game area it is the same place as.
 _SAME_AREA = re.compile(r"Junction basis: the same place as the game's (\w+)")
 #: A part's source that names the split of another area it is shared with.
-_SAME_PART = re.compile(r"The same place as the part of (\w+)'s split")
+_SAME_PART = re.compile(r"The same place as the part of (\w+)(?:'s|') split")
 
 
 @pytest.mark.parametrize("key", SPLITS)
@@ -1764,3 +1771,118 @@ def test_every_place_his_words_name_on_a_split_is_built_or_not_built(key: str) -
         if name == table[area].callout or name in parts:
             continue
         assert f"NOT BUILT: {name}." in split.source, (key, name)
+
+
+def test_d6d_is_laatikkos_corner_and_b_rafters_rest_over_the_floor() -> None:
+    """Story 4.25, the lead's decision 4 from his answer 3.8 (*"D6d:n
+    laatukko on sen oikeasta yläkulmasta"*): D6d's top-right corner is
+    laatikko at every height, and all the rest of D6d is b rafters on the
+    rafter and b site on the floor beneath it. The quote check holds each
+    region to its words but not the regions to covering the half-cell, so
+    a region dropped from D6d fails only here. The heights are read from
+    the band carried to D6d, one unit either side of its edge. In Tunnels'
+    split the corner is laatikko too and the rest of D6d is the corridor,
+    tunnels -- where the two Tunnels ticks at the box's edge (z -673, just
+    below the corner) fall."""
+    split = _shipped()["BombsiteB"].split
+    tunnels = _shipped()["Tunnels"].split
+    rafters = next(p for p in split.parts if p.callout == "b rafters")
+    (edge,) = {r.z[0] for r in rafters.regions if r.cell == "D6d"}
+    x0, y0, x1, y1 = _half_cell_rect(split, "D6d")
+    for i in range(10):
+        for j in range(10):
+            px = x0 + (x1 - x0) * (i + 0.5) / 10
+            py = y0 + (y1 - y0) * (j + 0.5) / 10
+            x, y, _ = _at_pixel(split, px, py)
+            corner = i >= 5 and j < 5
+            for z, beneath in ((edge + 1, "b rafters"), (edge - 1, None)):
+                part = split.part_at(x, y, z)
+                found = part.callout if part else None
+                assert found == ("laatikko" if corner else beneath), (i, j, z)
+                part = tunnels.part_at(x, y, z)
+                found = part.callout if part else None
+                assert found == ("laatikko" if corner else None), (i, j, z)
+
+
+
+def test_c6c_is_b_rafters_on_the_rafter_and_sinkku_or_b_site_beneath() -> None:
+    """Story 4.25, his C6c answer (2026-09-30, afternoon): *"Jos ne ovat
+    rafters korkeudella ne ovat raftersia jos ne ovat b lattian
+    korkeudella ne ovat b siteä tai sinkkua riippuen missä päin ruutua"*
+    -- height decides first. At the rafter's height all of C6c is b
+    rafters, its bottom-left corner included (alakerran sinkku yields,
+    broad); beneath the band the corner is sinkku and the rest b site."""
+    split = _shipped()["BombsiteB"].split
+    rafters = next(p for p in split.parts if p.callout == "b rafters")
+    (edge,) = {r.z[0] for r in rafters.regions if r.cell == "C6c"}
+    x0, y0, x1, y1 = _half_cell_rect(split, "C6c")
+    for i in range(10):
+        for j in range(10):
+            px = x0 + (x1 - x0) * (i + 0.5) / 10
+            py = y0 + (y1 - y0) * (j + 0.5) / 10
+            x, y, _ = _at_pixel(split, px, py)
+            corner = i < 5 and j >= 5
+            above = split.part_at(x, y, edge + 1)
+            below = split.part_at(x, y, edge - 1)
+            assert above is not None and above.callout == "b rafters", (i, j)
+            found = below.callout if below else None
+            assert found == ("alakerran sinkku" if corner else None), (i, j)
+
+def test_one_place_on_one_floor_is_one_region() -> None:
+    """Story 4.25 (review round 1): parts of one callout in two splits of
+    one map on one floor are one place, so they hold the same half-cells,
+    regions and boxes and carry one junction -- laatikko and alakerran
+    sinkku in BombsiteB's and Tunnels' splits, ramppi vasen and ramppi
+    oikea in BombsiteB's and Ramp's, and Inferno's borrowed table. And a
+    part whose source says it is the same place as a part of another
+    split on its floor is among them, so the sentence cannot name a twin
+    that differs."""
+    checked = set()
+    table_of = load_callouts(_POOL)
+    for map_name, table in table_of.items():
+        splits = {a: e.split for a, e in table.items() if e.split is not None}
+        for one in sorted(splits):
+            for two in sorted(splits):
+                if one >= two or splits[one].floor_band != splits[two].floor_band:
+                    continue
+                theirs = {p.callout: p for p in splits[two].parts}
+                for part in splits[one].parts:
+                    twin = theirs.get(part.callout)
+                    if twin is None:
+                        continue
+                    assert (part.cells, part.regions, part.boxes, part.junction) == (
+                        twin.cells, twin.regions, twin.boxes, twin.junction
+                    ), (map_name, one, two, part.callout)
+                    checked |= {
+                        (map_name, one, part.callout),
+                        (map_name, two, part.callout),
+                    }
+    declared = 0
+    for map_name, table in table_of.items():
+        for area, entry in table.items():
+            for part in entry.split.parts if entry.split else []:
+                other = _SAME_PART.search(part.source)
+                if other and table[other[1]].split.floor_band == entry.split.floor_band:
+                    declared += 1
+                    key = (map_name, area, part.callout)
+                    assert key in checked, key
+    assert declared, "no part says it is the same place as another split's part"
+
+
+def test_every_fraction_word_decides_a_region() -> None:
+    """Story 4.25 (review round 1): every entry of :data:`_FRACTION_WORDS`
+    is the first term found in some shipped region's words, so an entry
+    left behind when its region changes -- which would read nothing and
+    guard nothing -- fails here by name."""
+    used = set()
+    for table in load_callouts(_POOL).values():
+        for entry in table.values():
+            for part in entry.split.parts if entry.split else []:
+                for region in part.regions:
+                    if region.crossing is not None:
+                        continue
+                    lower = region.words.lower()
+                    term = next((t for t, _ in _FRACTION_WORDS if t in lower), None)
+                    if term is not None:
+                        used.add(term)
+    assert [t for t, _ in _FRACTION_WORDS if t not in used] == []

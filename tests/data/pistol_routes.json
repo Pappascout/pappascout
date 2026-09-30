@@ -119,7 +119,7 @@
           "      - 1 ramp",
           "    - 1 rafters -> a site -> hut -> lobby -> radio -> ramp",
           "  - 1 admin -> ramp -> b site -> tunnels -> secret ⇄ tunnels",
-          "  - 1 ct piha -> main -> a site -> vent -> alakerran sinkku"
+          "  - 1 ct piha -> main -> a site -> vent -> back vents -> alakerran sinkku"
         ],
         "won": false
       },
@@ -130,8 +130,8 @@
           "  - 3 hell",
           "    - 2 rafters",
           "      - 1 a site -> squeaky ⇄ a site",
-          "      - 1 heaven ⇄ rafters -> ramp -> b rafters (päätelty)",
-          "    - 1 ramp -> b rafters (päätelty) -> b site ⇄ b rafters (päätelty) -> liuska",
+          "      - 1 heaven ⇄ rafters -> ramp -> b rafters",
+          "    - 1 ramp -> b rafters -> liuska",
           "  - 2 ct piha -> main",
           "    - 1 a site -> lobby -> t roof ⇄ lobby",
           "    - 1 kuoli main (23 s)"
@@ -315,11 +315,11 @@
           "  - 4 hell",
           "    - 2 rafters -> a site -> vent",
           "      - 1 b site",
-          "      - 1 tunnels -> tuplaovet ⇄ tunnels -> liuska",
+          "      - 1 tunnels -> tuplaovet -> b site -> liuska",
           "    - 2 ramp",
           "      - 1 ramppi vasen ⇄ ramp -> kuoli ramppi vasen (40 s)",
           "      - 1 ramppi vasen -> liuska -> b site -> kuoli b site (27 s)",
-          "  - 1 ct piha -> main -> a site -> vent -> back vents (päätelty) -> b site -> b-safe-plant"
+          "  - 1 ct piha -> main -> a site -> vent -> back vents -> b site -> b-safe-plant"
         ],
         "won": false
       }

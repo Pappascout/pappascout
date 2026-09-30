@@ -469,6 +469,8 @@ def test_every_carried_band_is_carried_to_his_own_half_cells() -> None:
     assert found == {
         ("de_nuke", "Lobby", "hattuhylly"): {"I11a"},
         ("de_nuke", "Lobby", "hutladder"): {"I11a"},
+        # Story 4.25 (review round 1): the ring's band, carried to D6d.
+        ("de_nuke", "BombsiteB", "b rafters"): {"D6d"},
     }
 
 
@@ -982,13 +984,14 @@ _BANDED = {
         ("hutladder", "I11a"), ("hattuhylly", "I10c"), ("hattuhylly", "I11c"),
         ("hattuhylly", "I11a"),
     },
-    # Story 4.24: b rafters over the site floor, the one band of the lower
-    # floor (bsite-taulukot-2026-09-29.md section 3).
+    # Story 4.24: b rafters over the site floor (bsite-taulukot-2026-09-29.md
+    # section 3); since Story 4.25 his whole U with the top tenth of row 7,
+    # the ring's band carried to D6d by his word.
     "de_nuke.BombsiteB": {
         ("b rafters", cell)
         for cell in (
-            "D4d", "D5b", "D5d", "D6b", "D6c", "C6d",
-            "C4c", "C5a", "C5c", "C6a", "C6c",
+            "D4d", "D5b", "D5d", "D6b", "D6c", "D6d", "C6d",
+            "C4c", "C5a", "C5c", "C6a", "C6c", "C7b", "D7a", "D7b",
         )
     },
     "de_nuke.Ramp": set(),
@@ -1091,17 +1094,24 @@ def test_every_height_band_passes_the_band_rule_at_its_largest_gap(
             ("upper", place.filter(pl.col("z") >= edge)),
             ("lower", place.filter(pl.col("z") < edge)),
         ):
-            majority = rows.group_by("area").len().sort("len", descending=True)["area"][0]
+            top = rows.group_by("area").len().sort("len", descending=True).row(0)
+            majority = top[0]
             for callout in parts[edge]:
                 statement = _band_statement(by_callout[callout].source, edge)
                 pattern = (
                     r"The upper level is the game's (\w+)"
                     if side == "upper"
                     else r"the lower the game's (\w+)"
-                )
+                ) + r"(?: \((\d+) of (\d+))?"
                 stated = re.search(pattern, statement)
                 if stated:
                     assert stated[1] == majority, (callout, side, majority)
+                    # Story 4.25 (review round 1): the counts a source
+                    # states, "(n of m", are the level's, re-derived.
+                    if stated[2] is not None:
+                        assert (int(stated[2]), int(stated[3])) == (
+                            top[1], rows.height
+                        ), (callout, side, top[1], rows.height)
                 elif side == "upper" or "direction rests on his words" not in statement:
                     # Every band names the game area of both its levels,
                     # except where one area holds both and his words decide.
@@ -1151,8 +1161,10 @@ _ONE_LEVEL = {
     "underpass": ("de_inferno", "underpass", ["F11b", "F11d"], (0.0, 1.0)),
     "t balcony over F11d": ("de_inferno", "t balcony", ["F11d"], (0.0, 1.0)),
     "H3a's top edge (A28)": ("de_dust2", "short a", ["H3a"], (0.0, 0.25)),
-    # Story 4.24: the rafter's corner over the box, and the vent's knee.
-    "b rafters in D6d": ("de_nuke.BombsiteB", "b rafters", ["D6d"], (0.0, 1.0)),
+    # Story 4.24: the vent's knee. (D6d, refused a band in Story 4.24,
+    # carries the ring's since Story 4.25; that its rest alone cannot give
+    # the ring's edge is checked where carried bands are, in
+    # test_every_height_band_passes_the_band_rule_at_its_largest_gap.)
     "the vent's knee height": ("de_nuke.Tunnels", "vent", None, None),
 }
 
