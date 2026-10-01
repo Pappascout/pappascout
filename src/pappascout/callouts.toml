@@ -78,8 +78,11 @@
 #   unnamed  -- the place has no callout at all (``callout`` is absent)
 # stated, guide and measured are CERTAIN and print unmarked; inferred and
 # guess print with a mark, and a callout fed by several areas is marked if
-# any of them is not certain. unnamed prints the game's name with its own
-# mark.
+# any of them is not certain. The same holds for the parts of splits: one
+# part that is not certain marks its callout in every row of the map, on
+# every split and on the area its own name merges with (Story 4.26: an
+# inferred window part would mark Hole's own positions too). unnamed prints
+# the game's name with its own mark.
 #
 # THE KEYS. One section per map, ``[<map>.<game area>]``. An unknown map is
 # refused at load (it must be in ``[league].map_pool``), and so is an unknown
@@ -242,6 +245,22 @@
 #                      leveydestä)'); and an edge named with a side ('oikea
 #                      alareuna', 'yläoikeasta reunasta') is that corner. A
 #                      part's source says where it rests on this rule.
+#                      A RISTEYS OF TWO (Story 4.26). His "risteys", in any
+#                      inflection (risteyksessä, risteyksen: the tests read
+#                      risteys and risteyks), names a crossing box only
+#                      where the half-cells meet at one point. Two
+#                      half-cells that share an edge meet at no point, and
+#                      the loader refuses a crossing of them, so his
+#                      risteys of two is read as that edge, a quarter deep
+#                      on each side by the size rule, written as one
+#                      fraction on each side (hiekkasäkit, on I2b and J2a).
+#                      Its limit: the depth is the size rule's and not his,
+#                      so such a part is inferred where it moves positions.
+#                      It departs from the lead's decision 5 of spec-4-26
+#                      (a crossing uses the Story 4.20 crossing form), which
+#                      cannot hold two half-cells, and from postimerkki's
+#                      precedent (Story 4.17), a pixel box laid on the edge
+#                      where K13b and L13a meet, which no region can write.
 #                      parts_from = "<Area>" in a split reads that area's
 #                      split parts instead of writing its own: one table for
 #                      several splits of a map (Inferno's three), each still
@@ -263,6 +282,27 @@
 #                      of a junction area. It first bites on Nuke's lower
 #                      floor (Story 4.25): alakerran sinkku, the game's
 #                      Decon (transit), holds 8 BombsiteB ticks in C7a.
+#                      On Dust2 (Story 4.26) it bites twice: short a, the
+#                      game's ExtendedA (transit), holds 14 BombsiteA ticks
+#                      on BombsiteA's split, and short stairs, the game's
+#                      ShortStairs (a junction), holds 15 ExtendedA ticks on
+#                      ExtendedA's split.
+#                      HIS WORD FIRST (Story 4.26, the lead's decision on
+#                      his ct cross answer): where his own words name a
+#                      part a choice point, the part is a junction on every
+#                      split, before every clause above. Its basis then
+#                      reads "his words make it a junction, a choice point:
+#                      '<his words>'; it holds positions of <areas>", the
+#                      areas re-derived from the archive, and its
+#                      junction_source quotes the same words. A part named
+#                      like an area cannot take a junction from his words
+#                      that differs from that area's: the loader holds one
+#                      callout to one junction, so there his words make the
+#                      area itself a junction, by the area rule at the top
+#                      of this file. It first bites on Dust2's ct cross,
+#                      which lies in the transit UnderA and in the junction
+#                      LongA; the tests hold the parts it decides to a
+#                      closed set.
 #   junction        -- see the rule above. A transit place drops out of the
 #                      middle of a route; a place with no callout is always
 #                      kept, so the flag stays visible.
@@ -1014,6 +1054,32 @@ junction_source = "reittimalli-dust2-2026-09-26.md his words: 'siinä crosin koh
 neighbours = 3
 confidence = "stated"
 source = "reittimalli-dust2-2026-09-26.md section 3: ARamp = ramp (the cross); calloutit.md guide: RAMP, CROSS"
+note = "His ramp. Since Story 4.26 the split below names his finer places inside it; every other position, and every rule row, stays ramp."
+
+[de_dust2.ARamp.split]
+image = "kartta04_sivu4_1024x1024.png"
+origin = [0.0, 0.0]
+cell = [95.75763568282127, 99.32050816714764]
+columns = "ABCDEFGHIJK"
+rows = 11
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_dust2-BombsiteA.png and de_dust2-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_dust2.UnderA.split], checked float-equal (dust2-taulukot-2026-10-01.md section 2.1), so every split of de_dust2 is on one grid. No floor cut (dust2-taulukot-2026-10-01.md section 2.2): no height separates UnderA from short's edge above it (UnderA reaches z 134.7, ExtendedA starts at 94.2) and the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-01 is vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', read as tables in dust2-taulukot-2026-10-01.md and built by the lead's decisions on dust2-taulukot-2026-10-01.md (spec-4-26-dust2-sites.md, section 'Lead decisions on dust2-taulukot-2026-10-01.md'): where his words of 2026-10-01 name a cell they win, and where they are silent his words of 2026-09-28 stand, by his own opening, his words: 'Sait tähän jo aika tarkan kuvauksen aiemmin'. A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. ramp is his word for it and the area's own callout (vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'Ramppi alkaa noin tuosta ja viettää alaspäin kohti crossia ja autoa'), so the parts are finer places inside it. NOT BUILT: goose. Its I2b region holds 6 ARamp positions, all inside hiekkasäkit's box, his finer place there, so goose would hold none; J1c's 3, beside goose, stay ramp. His places on this split, from his quoted words: ramp, hiekkasäkit."
+
+[de_dust2.ARamp.split.fit]
+sx = 0.22531208395957947
+sy = 0.23369531333446503
+bx = 559.6740112304688
+by = 768.7691650390625
+
+[[de_dust2.ARamp.split.parts]]
+callout = "hiekkasäkit"
+regions = [
+  { cell = "I2b", x = [0.75, 1.0], y = [0.25, 0.75], words = "I2b ja J2a välisessä risteyksessä noin puolessa välissä ruutuja" },
+  { cell = "J2a", x = [0.0, 0.25], y = [0.25, 0.75], words = "J2a välisessä risteyksessä noin puolessa välissä ruutuja" },
+]
+junction = true
+junction_source = "holds positions of ARamp, whose entry is a junction: reittimalli-dust2-2026-09-26.md his words: 'siinä crosin kohdalla on paljastunut ct spawniin'"
+confidence = "inferred"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'I2b ja J2a välisessä risteyksessä noin puolessa välissä ruutuja on hiekkasäkit, callout kuvassa barrels, koska aiemmin ne olivat tynnyrit ennen Dust2 päivitystä'; his name, for the guide's BARRELS. I2b and J2a share an edge, so his risteys is a point on that edge and not a corner of four half-cells (a crossing box needs one): it is written as two fractions, one on each side. Sized by the size rule he confirmed for edges and corners (callouts.toml header): an edge he does not quantify is a quarter of the half-cell, I2b's right quarter and J2a's left quarter; and his 'noin puolessa välissä' (about halfway) as the middle half of the height, a quarter either side of the half -- the lead's reading (dust2-taulukot-2026-10-01.md ambiguity 7), which moves 8 ARamp positions, so hiekkasäkit is inferred. One level, z 109-127: no band (dust2-taulukot-2026-10-01.md section 3). Junction basis: holds positions of ARamp"
 
 [de_dust2.BDoors]
 callout = "b doors"
@@ -1022,6 +1088,52 @@ junction_source = "reittimalli-dust2-2026-09-26.md contact points: 'beyond mid d
 neighbours = 3
 confidence = "stated"
 source = "reittimalli-dust2-2026-09-26.md section 3: BDoors = B doors; calloutit.md guide: B DOORS"
+note = "His B ovet, the doors. Since Story 4.26 the split below names his finer places inside it; every other position, and every rule row, stays b doors."
+
+[de_dust2.BDoors.split]
+image = "kartta04_sivu4_1024x1024.png"
+origin = [0.0, 0.0]
+cell = [95.75763568282127, 99.32050816714764]
+columns = "ABCDEFGHIJK"
+rows = 11
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_dust2-BombsiteA.png and de_dust2-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_dust2.UnderA.split], checked float-equal (dust2-taulukot-2026-10-01.md section 2.1), so every split of de_dust2 is on one grid. No floor cut (dust2-taulukot-2026-10-01.md section 2.2): no height separates UnderA from short's edge above it (UnderA reaches z 134.7, ExtendedA starts at 94.2) and the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-01 is vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', read as tables in dust2-taulukot-2026-10-01.md and built by the lead's decisions on dust2-taulukot-2026-10-01.md (spec-4-26-dust2-sites.md, section 'Lead decisions on dust2-taulukot-2026-10-01.md'): where his words of 2026-10-01 name a cell they win, and where they are silent his words of 2026-09-28 stand, by his own opening, his words: 'Sait tähän jo aika tarkan kuvauksen aiemmin'. A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. b doors is his word for the doors and the area's own callout (vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'C3d ja C3b ruuduissa on B ovet, ne ovat tuplaovet'; reittimalli-dust2-2026-09-26.md section 1, his words: 'Kuitenkin siellä on B doors ja window jotka ovat ct pelaajien sisäänkäyntejä B sitelle'). The area holds three of his places as equals -- b doors, b slope and raksatelineet -- which would make it coarse, but a coarse b doors beside his B ovet, the same callout, is refused by the loader; so it is not coarse, as Nuke's Tunnels (the lead's decision #13 on dust2-taulukot-2026-10-01.md), and the other two are finer places inside it. The rest -- C3b, C3d, the climb in C2d under the window, and the flat at the E column -- stays b doors. His places on this split, from his quoted words: b doors, window, raksatelineet, b slope."
+
+[de_dust2.BDoors.split.fit]
+sx = 0.22531208395957947
+sy = 0.23369531333446503
+bx = 559.6740112304688
+by = 768.7691650390625
+
+[[de_dust2.BDoors.split.parts]]
+callout = "window"
+regions = [
+  { cell = "C2b", z = [75.29, inf], words = "C2b,C2d risteyksessä noin on ikkuna B sitelle, joka on korkeammalla kuin ovet" },
+  { cell = "C2d", z = [75.29, inf], words = "C2d risteyksessä noin on ikkuna B sitelle, joka on korkeammalla kuin ovet" },
+]
+junction = true
+junction_source = "the same place as the game's Hole (callout 'window'), whose junction it must share: reittimalli-dust2-2026-09-26.md contact points: 'beyond mid doors on mid-to-B: CT spawn, B window or B doors'"
+confidence = "stated"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'C2b,C2d risteyksessä noin on ikkuna B sitelle, joka on korkeammalla kuin ovet'; his ikkuna is the window, the game's Hole, whose callout is his own word (reittimalli-dust2-2026-09-26.md section 1, his words: 'Kuitenkin siellä on B doors ja window jotka ovat ct pelaajien sisäänkäyntejä B sitelle'), so the counts merge. The two half-cells he names, whole, above his 'korkeammalla kuin ovet' (higher than the doors): his height words decide the place, not the crossing's size, so window is stated (the lead's review-round-1 decisions on Story 4.26 (2026-10-01), A3). Height band measured, not guessed (dust2-taulukot-2026-10-01.md section 3, C2b and C2d): the live ticks of the map inside the region fall in two levels, the largest gap running from 50.44 to 100.14 (22 below, 63 above); the band edge 75.29 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (re-derived under -m archive). The upper level is the game's Hole (48 of 63 ticks above), the lower the game's BombsiteB (20 of 22 below); the window is the upper level. It takes 8 BDoors positions. The same place as the part of BombsiteB's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). Junction basis: the same place as the game's Hole"
+
+[[de_dust2.BDoors.split.parts]]
+callout = "raksatelineet"
+cells = ["D2c", "D2a"]
+junction = true
+junction_source = "holds positions of BDoors, whose entry is a junction: reittimalli-dust2-2026-09-26.md contact points: 'beyond mid doors on mid-to-B: CT spawn, B window or B doors'"
+confidence = "stated"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'D2c ja D2a ovat raksatelineet jossa voi olla eri korkeudella kuin slopessa' -- the guide's SCAFFOLD. D2c is also his b slope, and there raksatelineet fails the band rule of the callouts.toml header (D2c holds a continuous climb from the slope at z -2 to the window at 111, and the scaffold top at 139, 5 ticks, lies 28.30 units over it, under 36; dust2-taulukot-2026-10-01.md section 3), so raksatelineet comes first and b slope yields D2c to it: a known limit, which names D2c's 8 slope-level positions raksatelineet (the lead's decision #18 on dust2-taulukot-2026-10-01.md). The same place as the part of MidDoors's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). It takes 36 BDoors positions (D2c 32, D2a 4). Junction basis: holds positions of BDoors"
+
+[[de_dust2.BDoors.split.parts]]
+callout = "b slope"
+cells = ["D2c", "D3a", "D3c", "D2d", "D3b"]
+regions = [
+  { cell = "D3d", x = [0.0, 0.75], words = "kunnes se tasaantuu Mid ovien kohdilla noin" },
+]
+broad = true
+junction = true
+junction_source = "holds positions of BDoors, whose entry is a junction: reittimalli-dust2-2026-09-26.md contact points: 'beyond mid doors on mid-to-B: CT spawn, B window or B doors'"
+confidence = "inferred"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'B slope on mäki joka on alue sarakkeesta D2c,D3a,D3c kohti midin tuplaovia ja CT spawnia menemä viettävä mäki alaspäin kohti tosiaan ct spawnia' and his words: 'Kun mäki loppuu ei olla enää B slopessa'; asked where the hill ends (dust2-taulukot-2026-10-01.md ambiguity 17) he answered, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'Jatkuu kyllä. Voit ajatella, että sarakkeesta D (D3a,D3c) kaikki kohdat joissa z arvo vaihtelee kunnes se tasaantuu Mid ovien kohdilla noin ovat B slopea (B slope eli se kalteva nouseva mäki kohti B siteä)'. Measured (the live ticks of BDoors and MidDoors by quarter half-cell, median z): the hill falls from z 3 at D3a's left to -76 at D3b's right, and from 24 to -98 along D2c-D2d and D3c-D3d; from the E column on it stays within -105..-111 across E3a and E3b (E2c flat at -83), the flat at mid doors. So the lead's region D2d from 'kaikki kohdat joissa z arvo vaihtelee kunnes se tasaantuu Mid ovien kohdilla noin' and the lead's region D3b from 'kaikki kohdat joissa z arvo vaihtelee kunnes se tasaantuu Mid ovien kohdilla noin' are b slope too, and the lead's region D3d from 'kunnes se tasaantuu Mid ovien kohdilla noin', but its right quarter: there the 4 live ticks (BDoors 2, MidDoors 2) lie at z -108.9 to -99.6, median -102.1, already at the flat the E column holds (E3a's left quarter, median -106.2), while D3d's third quarter still falls (median -89.5) (the lead's review-round-1 decisions on Story 4.26 (2026-10-01), A6). The end is our reading of his 'noin' and the choice moves positions, so b slope is inferred. A slope, so no band. Broad on BDoors's split: it yields to every earlier part it overlaps, so D2c is raksatelineet's (a known limit, its source says why). It takes 121 BDoors positions (D3a 73, D3c 10, D2d 17, D3b 21). Junction basis: holds positions of BDoors"
 
 [de_dust2.BombsiteA]
 callout = "a site"
@@ -1030,6 +1142,57 @@ junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bo
 neighbours = 4
 confidence = "stated"
 source = "reittimalli-dust2-2026-09-26.md section 3: BombsiteA = A site"
+note = "His word for the site, so it is not coarse. Since Story 4.26 the split below names his finer places inside it; every other position, and every rule row, stays a site."
+
+[de_dust2.BombsiteA.split]
+image = "kartta04_sivu4_1024x1024.png"
+origin = [0.0, 0.0]
+cell = [95.75763568282127, 99.32050816714764]
+columns = "ABCDEFGHIJK"
+rows = 11
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_dust2-BombsiteA.png and de_dust2-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_dust2.UnderA.split], checked float-equal (dust2-taulukot-2026-10-01.md section 2.1), so every split of de_dust2 is on one grid. No floor cut (dust2-taulukot-2026-10-01.md section 2.2): no height separates UnderA from short's edge above it (UnderA reaches z 134.7, ExtendedA starts at 94.2) and the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-01 is vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', read as tables in dust2-taulukot-2026-10-01.md and built by the lead's decisions on dust2-taulukot-2026-10-01.md (spec-4-26-dust2-sites.md, section 'Lead decisions on dust2-taulukot-2026-10-01.md'): where his words of 2026-10-01 name a cell they win, and where they are silent his words of 2026-09-28 stand, by his own opening, his words: 'Sait tähän jo aika tarkan kuvauksen aiemmin'. A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. a site is his word for the site and the area's own callout (vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'I2c,I2d,I3a (paitsi elevator),I3b (paitsi oikean reunan kolmannes joka on ramppia) on A site'), so the parts are finer places inside it. NOT BUILT: elevator. It holds no BombsiteA position (I3a's 3 lie in its top right; H3b's 3 are above the band, on short). NOT BUILT: hiekkasäkit. It holds no BombsiteA position. His places on this split, from his quoted words: a site, goose, ramp, elevator."
+
+[de_dust2.BombsiteA.split.fit]
+sx = 0.22531208395957947
+sy = 0.23369531333446503
+bx = 559.6740112304688
+by = 768.7691650390625
+
+[[de_dust2.BombsiteA.split.parts]]
+callout = "goose"
+cells = ["I1c", "I1d"]
+regions = [
+  { cell = "I2b", x = [0.25, 1.0], words = "Ulottuu" },
+]
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "inferred"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'I1c,I1d Goose, tässä ihan pienet portaat A siteltä Ruuduissa I2a,I2b joten voi olla hieman korkeuseroa A siten kanssa'; asked whether goose's raised floor reaches into I2b (dust2-taulukot-2026-10-01.md ambiguities 1-2), he answered, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'Ulottuu' (it reaches) -- an answer about goose's floor, not about the site's floor beside it. I2b's 37 BombsiteA ticks: 20 at goose's height (z 123.9 to 127.2), 1 at 159.1, and 16 at z 94.3 to 119.8, 9 of them on the site floor (z 94.3 to 98.5), all 9 in I2b's left quarter (x below 0.2). The band rule of the callouts.toml header refuses I2b a band: it fails the band rule (the largest gap 31.89 units, under 36), so a fraction decides: the lead's region I2b from 'Ulottuu', I2b but its left quarter (the size rule's edge), which leaves all 9 site-floor positions to a site (the lead's review-round-1 decisions on Story 4.26 (2026-10-01), A5). The reading moves counted positions, so goose is inferred. KNOWN LIMIT (I2b's left quarter): 3 goose-height positions lie there too and stay a site, and 4 positions on the stairs (z 104 to 120) lie in goose's region and are goose. KNOWN LIMIT, I2a: his stairs in I2a are not goose, and the band rule cannot separate goose's positions there either: I2a fails the band rule (the largest gap 12.18 units), so I2a stays a site. The same place as the part of UnderA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). It takes 58 BombsiteA positions (I1c 8, I1d 28, I2b 22). Junction basis: holds positions of BombsiteA"
+
+[[de_dust2.BombsiteA.split.parts]]
+callout = "short a"
+cells = ["H2d", "H2b", "H2c", "G2d"]
+regions = [
+  { cell = "H3b", y = [0.0, 0.5], z = [85.42, inf], words = "H3b:stä vajaa puolet yläreunasta on ylempänä shortissa" },
+  { cell = "G2a", y = [0.75, 1.0], words = "G2a:n alareuna" },
+  { cell = "G3b", z = [-8.76, inf], words = "nämä erottaa shortin ruuduista G3b,G3d z koordinaatti" },
+  { cell = "G3d", z = [-8.76, inf], words = "nämä erottaa shortin ruuduista G3b,G3d z koordinaatti" },
+]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H2d,H2b rivillä siitä G2a:n alareuna,H2d,H2c,G2d,G3b;G3d' and his words: 'nämä erottaa shortin ruuduista G3b,G3d z koordinaatti'; H2d written twice, read as one; G2a's edge sized by the size rule he confirmed for edges and corners (callouts.toml header). His short is the game's ExtendedA (its ticks are the upper level of G3b and G3d, zbands-mitattu-2026-09-28.md): Named 'short a' by the lead, so the counts merge. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, G3b and G3d): the live ticks of the map inside the region fall in two levels, the largest gap running from -113.00 to 95.48 (47 below, 81 above); the band edge -8.76 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's ExtendedA (81 of 81 ticks above), the lower the game's CTSpawn (47 of 47 below); short is the upper level. H3b's raised level by his answer after Story 4.20, puoliruudut-vastaus-2-2026-09-28.md section 'His answers after Story 4.20, evening 2026-09-28', answer 1, his words: 'H3b:stä vajaa puolet yläreunasta on ylempänä shortissa, ja vähän yli puolet ovat alempana elevatorissa ct ramp alueella': short is the upper level of H3b's top part. The top part is y [0, 0.5] -- his 'vajaa puolet' (a little under half) is a fraction he did not quantify, so it is read as the half, and the band does the real separation. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, H3b top half): the live ticks of the map inside the region fall in two levels, the largest gap running from 43.81 to 127.03 (18 below, 5 above); the band edge 85.42 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's BombsiteA (3 of 5 ticks above, with ExtendedA 2), the lower the game's UnderA (18 of 18 below), elevator's own area; short is the upper level of H3b too; the ground below is elevator. The half for his 'vajaa puolet' is a reading that moves no position: none of the 18 UnderA positions in H3b's top part lies above the band (zbands-mitattu-2026-09-28.md), so it stays stated. NOT BUILT: his 'H3a:n yläreuna' (A28): H3a's top edge fails the band rule of the callouts.toml header (7 live ticks, one of them below the largest gap; zbands-mitattu-2026-09-28.md), so fast cat keeps it. The same place as the part of UnderA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). On BombsiteA's split by the lead's decision #6 on dust2-taulukot-2026-10-01.md: his 2026-09-28 cells stand where his words of 2026-10-01 are silent, and it takes 14 BombsiteA positions (H2d 10, H2b 1 and H3b's raised level 3). Junction basis: the same place as the game's ExtendedA -- transit; here the header's first clause bites, as on Nuke's alakerran sinkku: the 14 positions are a junction area's, BombsiteA's, and the name makes them transit"
+
+[[de_dust2.BombsiteA.split.parts]]
+callout = "ramp"
+cells = ["J2c", "J3a", "J3b", "J2d", "J2b", "J2a"]
+regions = [
+  { cell = "I3b", x = [0.6666666666666666, 1.0], words = "I3b ja 12d oikean reunan kolmannes" },
+  { cell = "I2d", x = [0.6666666666666666, 1.0], words = "I3b ja 12d oikean reunan kolmannes" },
+]
+junction = true
+junction_source = "the same place as the game's ARamp (callout 'ramp'), whose junction it must share: reittimalli-dust2-2026-09-26.md his words: 'siinä crosin kohdalla on paljastunut ct spawniin'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'I3b ja 12d oikean reunan kolmannes, sekä J2c,J3a,J3b,J2d,J2b,J2a ovat A ramppi'; read '12d' as I2d, as his next sentence pairs 'I2d ja I3b paitsi rampin alue' (A7) -- I2d holds no UnderA position, so on UnderA the reading moves none; on BombsiteA's split I2d's third holds 1 BombsiteA position, which his answer 'ramppia' confirms; stated. His A ramppi is the game's ARamp, callout ramp, so the counts merge. Not broad since Story 4.26: goose moved to I1c and I1d by his words of 2026-10-01, so J2a is ramp's whole and ramp yields to no earlier part (A26 is history); I2d's and I3b's thirds are ramp's (on UnderA's split a site, after it, yields to them; this split has no a site part, and the rest is the area's own callout). His words of 2026-10-01 keep I3b's third; asked about I2d's (dust2-taulukot-2026-10-01.md ambiguity 5) he answered, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'ramppia'. And the ramp's bottom on long: his words: 'ramppi alkaa J3a tasolta', so J3a and J3b are ramp on LongA's split too. The same place as the part of UnderA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). On BombsiteA's split it takes 1 BombsiteA position, in I2d's third. Junction basis: the same place as the game's ARamp"
 
 [de_dust2.BombsiteB]
 callout = "b site"
@@ -1038,6 +1201,111 @@ junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bo
 neighbours = 4
 confidence = "stated"
 source = "reittimalli-dust2-2026-09-26.md section 3: BombsiteB = B site"
+note = "His broad word for the site, so it is not coarse. Since Story 4.26 the split below names his finer places inside it; every other position, and every rule row, stays b site."
+
+[de_dust2.BombsiteB.split]
+image = "kartta04_sivu4_1024x1024.png"
+origin = [0.0, 0.0]
+cell = [95.75763568282127, 99.32050816714764]
+columns = "ABCDEFGHIJK"
+rows = 11
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_dust2-BombsiteA.png and de_dust2-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_dust2.UnderA.split], checked float-equal (dust2-taulukot-2026-10-01.md section 2.1), so every split of de_dust2 is on one grid. No floor cut (dust2-taulukot-2026-10-01.md section 2.2): no height separates UnderA from short's edge above it (UnderA reaches z 134.7, ExtendedA starts at 94.2) and the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-01 is vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', read as tables in dust2-taulukot-2026-10-01.md and built by the lead's decisions on dust2-taulukot-2026-10-01.md (spec-4-26-dust2-sites.md, section 'Lead decisions on dust2-taulukot-2026-10-01.md'): where his words of 2026-10-01 name a cell they win, and where they are silent his words of 2026-09-28 stand, by his own opening, his words: 'Sait tähän jo aika tarkan kuvauksen aiemmin'. A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. b site is his broad word for the site and the area's own callout, so the parts are finer places inside it. NOT BUILT: laatikko. He names double stack, Big box and, maybe, the tunnel's boxes as b boost; the others he describes without a name (vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'B sitellä on useita laatikoita tuossa ikkunan alla', and the single box in C2a's bottom-left corner, the car's box and alttari's box), and asked, he gave them none (vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'mutta muuten ei'), so none is a part of its own. His places on this split, from his quoted words: b site, window, double stack, big box, alttari, b boost, dog, toka kulma, b doors, laatikko."
+
+[de_dust2.BombsiteB.split.fit]
+sx = 0.22531208395957947
+sy = 0.23369531333446503
+bx = 559.6740112304688
+by = 768.7691650390625
+
+[[de_dust2.BombsiteB.split.parts]]
+callout = "window"
+regions = [
+  { cell = "C2b", z = [75.29, inf], words = "C2b,C2d risteyksessä noin on ikkuna B sitelle, joka on korkeammalla kuin ovet" },
+  { cell = "C2d", z = [75.29, inf], words = "C2d risteyksessä noin on ikkuna B sitelle, joka on korkeammalla kuin ovet" },
+]
+junction = true
+junction_source = "the same place as the game's Hole (callout 'window'), whose junction it must share: reittimalli-dust2-2026-09-26.md contact points: 'beyond mid doors on mid-to-B: CT spawn, B window or B doors'"
+confidence = "stated"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'C2b,C2d risteyksessä noin on ikkuna B sitelle, joka on korkeammalla kuin ovet'; his ikkuna is the window, the game's Hole, whose callout is his own word (reittimalli-dust2-2026-09-26.md section 1, his words: 'Kuitenkin siellä on B doors ja window jotka ovat ct pelaajien sisäänkäyntejä B sitelle'), so the counts merge. The two half-cells he names, whole, above his 'korkeammalla kuin ovet' (higher than the doors): his height words decide the place, not the crossing's size, so window is stated (the lead's review-round-1 decisions on Story 4.26 (2026-10-01), A3). Height band measured, not guessed (dust2-taulukot-2026-10-01.md section 3, C2b and C2d): the live ticks of the map inside the region fall in two levels, the largest gap running from 50.44 to 100.14 (22 below, 63 above); the band edge 75.29 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (re-derived under -m archive). The upper level is the game's Hole (48 of 63 ticks above), the lower the game's BombsiteB (20 of 22 below); the window is the upper level. It takes 7 BombsiteB positions. The same place as the part of BDoors's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). Junction basis: the same place as the game's Hole"
+
+[[de_dust2.BombsiteB.split.parts]]
+callout = "double stack"
+regions = [
+  { cell = "B2d", x = [0.5, 1.0], y = [0.5, 1.0], words = "B2d oikeassa alanurkassa on double stack" },
+]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'B2d oikeassa alanurkassa on double stack niminen laatikko callouts kuvassa, joka on kaksi laatikkoa päällekäin' and his words: 'Doublestackin päälle voi hypätä esim ikkunalta'. B2d's bottom-right corner, sized by the size rule he confirmed for edges and corners (callouts.toml header): half its width by half its height. Its top fails the band rule of the callouts.toml header (5 live ticks, 4 at z 10..53 and 1 at 134; dust2-taulukot-2026-10-01.md section 3), so it has no band. KNOWN LIMIT (the top box): the live ticks on the top box, z 133.8 to 138.3, are 8: 6 in C2c at x 0.11 to 0.15, y 0.27 to 0.39 of the half-cell, and 2 in B2d, one at x 0.79, y 0.63 inside his corner and one at x 0.84, y 0.27 just above it; his corner holds 1 of the 8, so the stack lies mostly east of it (the lead's review-round-1 decisions on Story 4.26 (2026-10-01), A2; a question to him). It takes 5 BombsiteB positions. Junction basis: holds positions of BombsiteB"
+
+[[de_dust2.BombsiteB.split.parts]]
+callout = "big box"
+regions = [
+  { crossing = ["B2c", "B2d", "B3a", "B3b"], size = 0.5, words = "B2d,B3b,B3a,B2c ruutujen risteyskohdassa Big box" },
+]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "inferred"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'B sitellä on myös ruutujen B2d,B3b,B3a,B2c ruutujen risteyskohdassa Big box niminen laatikko'; asked its size (dust2-taulukot-2026-10-01.md ambiguity 15) he answered, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'Big box osuu juuri B3a ja B3b välille. Jos laatikko olisi ruudun alanurkassa se olisi kulman kokoinen (eli puolet leveydestä puolet korkeudesta). Kuitenkin se onkeskellä risteystä eli risteyksen alle ja päälle ja neljäsosa noin joka ei ole big boxia. Eli B3a oikeassa ylänurkassa ja B3b Vasemmassa ylänurkassa voi olla boksin takana piilossa niin ettei tunnelin suunnalta näe pelaajaa' -- the size of a corner, half a half-cell wide and high, centred on the crossing. The corners of B3a and B3b he names are where one hides behind the box, not the box, so they are b site (the lead's review-round-1 decisions on Story 4.26 (2026-10-01), A1). The box's size is the lead's reading of his 'kulman kokoinen' on a crossing, so big box is inferred. KNOWN LIMIT (the box top): the live ticks on the box's top, z 62.5 to 67.5, are 30 in B2d's bottom-left corner (x 0.02 to 0.46, y 0.79 to 0.98 of the half-cell), and the crossing box names 11 of them; the rest stay b site until he says where the box ends (a question to him). Its top fails the band rule of the callouts.toml header (no gap of 36 units among its ticks, z 3..117), so it has no band. It takes 37 BombsiteB positions. Junction basis: holds positions of BombsiteB"
+
+[[de_dust2.BombsiteB.split.parts]]
+callout = "alttari"
+cells = ["A1d", "B1c", "A2b", "B2a"]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'A2b oikeassa ylänurkassa on myös laatikko jonka taakse pääsee ja se alue siellä A1d,B1c,A2b,B2a on nimeltään alttari' -- the guide's BACK PLAT, one level at z 30-36. The box in A2b's top-right corner lies inside alttari and holds no position, so it is no part of its own. It takes 40 BombsiteB positions (A1d 12, B1c 18, B2a 10). Junction basis: holds positions of BombsiteB"
+
+[[de_dust2.BombsiteB.split.parts]]
+callout = "b boost"
+regions = [
+  { crossing = ["B4a", "B4b", "B4c", "B4d"], size = 0.5, words = "B4c,B4d,B4b ja B4a ruutujen risteyksessä" },
+]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "inferred"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'Tunnelin sisäänkäynnin vieressä on boksit duurujen B4c,B4d,B4b ja B4a ruutujen risteyksessä'; asked whether the boxes he describes have names (dust2-taulukot-2026-10-01.md ambiguity 23), he answered, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'Ehkä  tunnelin boksit voivat olla B boost, mutta muuten ei' -- so no other unnamed box gets a name. The crossing of B4a, B4b, B4c and B4d as a box half a half-cell wide and high, the size of big box's: he gives no size, and his 'ehkä' (maybe) and the size are ours to read, so b boost is inferred (the lead's reading of his answer 8). Its top box fails the band rule of the callouts.toml header (8 live ticks, 5 at z 79.0 and 3 at 132.0 to 132.3; the 3 are fewer than the rule's 5; dust2-taulukot-2026-10-01.md section 3), so it has no band: a known limit, and the lower box's headshot edge with it. It takes 8 BombsiteB positions. Junction basis: holds positions of BombsiteB"
+
+[[de_dust2.BombsiteB.split.parts]]
+callout = "b auto"
+cells = ["B4d", "C4c"]
+regions = [
+  { cell = "B5b", y = [0.0, 0.25], words = "aivan B5b:n yläreuna" },
+  { cell = "C4a", y = [0.75, 1.0], words = "C4a:n alin neljännes voi olla autoa" },
+]
+broad = true
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'Tästä syvemmälle nurkkaan B4d, aivan B5b:n yläreuna, C4c ovat auto aluetta' and his words: 'Siellä on saman kaltainen auto kuin A:lla ja yksi laatikko jonka takana voi olla kyykyssä niin ettei sinua näy'; he calls both cars auto, and asked how to tell them apart (dust2-taulukot-2026-10-01.md section 6) he answered, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'Käytä a auto ja b auto', and on C4a, his words: 'C4a:n alin neljännes voi olla autoa, muuten B siteä (joka on laajempi ja auto tarkempi callout)' -- his own quarter. B5b's top edge sized by the size rule he confirmed for edges and corners (callouts.toml header). The car's box, at the B4d and C4c edge, lies inside it and is no part of its own. Broad: it yields to every earlier part it overlaps, so B4d's top-left corner, inside b boost's crossing, is b boost's. KNOWN LIMIT (the roof): the roof fails the band rule of the callouts.toml header (3 live ticks on the roof at z 49..61; dust2-taulukot-2026-10-01.md section 3), so it has no band. It takes 25 BombsiteB positions (B4d 8, C4c 5, C4a's bottom quarter 12). Junction basis: holds positions of BombsiteB"
+
+[[de_dust2.BombsiteB.split.parts]]
+callout = "dog"
+regions = [
+  { cell = "A4d", y = [0.0, 0.25], words = "A4d yläreunassa Dog" },
+]
+junction = true
+junction_source = "holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's BombsiteB on the guide picture, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'Heti vasemmalla on A4d yläreunassa Dog callout'. A4d's top edge, sized by the size rule he confirmed for edges and corners (callouts.toml header). It holds no position. Junction basis: holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's BombsiteB on the guide picture"
+
+[[de_dust2.BombsiteB.split.parts]]
+callout = "toka kulma"
+regions = [
+  { cell = "A3d", x = [0.0, 0.25], words = "A3d vasemman reunan neljännes on toka kulma" },
+]
+junction = true
+junction_source = "holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's BombsiteB on the guide picture, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'A3d vasemman reunan neljännes on toka kulma' -- his own quarter. He also offers the guide's name in a parenthesis, fence; toka kulma is his first word (the lead's decision #21 on dust2-taulukot-2026-10-01.md). It holds no position. Junction basis: holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's BombsiteB on the guide picture"
+
+[[de_dust2.BombsiteB.split.parts]]
+callout = "b doors"
+cells = ["C3b", "C3d"]
+junction = true
+junction_source = "the same place as the game's BDoors (callout 'b doors'), whose junction it must share: reittimalli-dust2-2026-09-26.md contact points: 'beyond mid doors on mid-to-B: CT spawn, B window or B doors'"
+confidence = "stated"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'C3d ja C3b ruuduissa on B ovet, ne ovat tuplaovet'; his B ovet is the game's BDoors, whose callout is his own word (reittimalli-dust2-2026-09-26.md section 1, his words: 'Kuitenkin siellä on B doors ja window jotka ovat ct pelaajien sisäänkäyntejä B sitelle'), so the counts merge. On BombsiteB's split as written (the lead's decision #16 on dust2-taulukot-2026-10-01.md): it takes 15 BombsiteB positions on the floor just inside the doors (C3b 4, C3d 11). Junction basis: the same place as the game's BDoors"
 
 [de_dust2.CTSpawn]
 callout = "ct spawn"
@@ -1046,6 +1314,7 @@ junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns
 neighbours = 3
 confidence = "stated"
 source = "reittimalli-dust2-2026-09-26.md section 3: CTSpawn = ct spawn"
+note = "Not split (Story 4.26, dust2-taulukot-2026-10-01.md section 5.8). KNOWN LIMIT: UnderA's fast cat names H3a, where 6 CTSpawn positions lie at ground level, and 09-28's ct ramppi names H3c, where 1 lies; a split would make fast cat hold a junction area's positions (CTSpawn's) and a transit area's (UnderA's, ExtendedA's) at once, and one callout carries one junction, so those 7 positions stay ct spawn."
 
 [de_dust2.Catwalk]
 callout = "catwalk"
@@ -1061,6 +1330,50 @@ junction = false
 neighbours = 4
 confidence = "measured"
 source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/dust2-epavarmat.png: the ticks lie on the guide label -- the top of SHORT A, up to NINJA. Before the measurement: reittimalli-dust2-2026-09-26.md section 3: ExtendedA = short A (inferred); calloutit.md guide: SHORT A"
+note = "His short. Since Story 4.26 the split below names his finer places inside it; every other position, and every rule row, stays short a."
+
+[de_dust2.ExtendedA.split]
+image = "kartta04_sivu4_1024x1024.png"
+origin = [0.0, 0.0]
+cell = [95.75763568282127, 99.32050816714764]
+columns = "ABCDEFGHIJK"
+rows = 11
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_dust2-BombsiteA.png and de_dust2-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_dust2.UnderA.split], checked float-equal (dust2-taulukot-2026-10-01.md section 2.1), so every split of de_dust2 is on one grid. No floor cut (dust2-taulukot-2026-10-01.md section 2.2): no height separates UnderA from short's edge above it (UnderA reaches z 134.7, ExtendedA starts at 94.2) and the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-01 is vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', read as tables in dust2-taulukot-2026-10-01.md and built by the lead's decisions on dust2-taulukot-2026-10-01.md (spec-4-26-dust2-sites.md, section 'Lead decisions on dust2-taulukot-2026-10-01.md'): where his words of 2026-10-01 name a cell they win, and where they are silent his words of 2026-09-28 stand, by his own opening, his words: 'Sait tähän jo aika tarkan kuvauksen aiemmin'. A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. short a is the lead's name for his short, the game's ExtendedA, and gandalf and ninja are spots on it (vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'H2a gandalf, shortin kanssa samaa tasoa'), so the parts are finer places inside it. NOT BUILT: ct spawn. G3c's 2 ExtendedA positions are on short at z 99, on the G3d line (dust2-taulukot-2026-10-01.md ambiguity 8); ct spawn's level in G3b and G3d is the game's own CTSpawn. NOT BUILT: ct ramppi. H3c's 32 ExtendedA positions are on the ledge at z 125-165, above the ramp's floor (dust2-taulukot-2026-10-01.md ambiguity 9). NOT BUILT: elevator. H3b's 2 ExtendedA positions are short's raised level. His places on this split, from his quoted words: gandalf, ninja, fast cat."
+
+[de_dust2.ExtendedA.split.fit]
+sx = 0.22531208395957947
+sy = 0.23369531333446503
+bx = 559.6740112304688
+by = 768.7691650390625
+
+[[de_dust2.ExtendedA.split.parts]]
+callout = "gandalf"
+cells = ["H2a", "G2b"]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H2a ja G2b ovat gandalf'. The same place as the part of UnderA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). His words of 2026-10-01, vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'H2a gandalf, shortin kanssa samaa tasoa', name H2a; his G2b of 2026-09-28 is carried, his words, by the lead's decision #3 on dust2-taulukot-2026-10-01.md. It takes 16 ExtendedA positions (H2a 14, G2b 2). Junction basis: holds positions of ExtendedA"
+
+[[de_dust2.ExtendedA.split.parts]]
+callout = "ninja"
+cells = ["G2a"]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'G2a on ninja'; broad: it yields to every earlier part it overlaps, taking what short a's bottom edge leaves in G2a (A31). The same place as the part of UnderA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). On ExtendedA's split ninja is not broad: nothing before it overlaps G2a, because short a is the area's own name and cannot be a part. KNOWN LIMIT (G2a's bottom quarter): here it is ninja, where UnderA's split gives it short a; no live tick lies in G2a, so the two splits differ in no position (the lead's review-round-1 decisions on Story 4.26 (2026-10-01), A6). Junction basis: holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's ExtendedA by that entry's measurement ('the top of SHORT A, up to NINJA')"
+
+[[de_dust2.ExtendedA.split.parts]]
+callout = "fast cat"
+cells = ["H3a"]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H3a on fast cat, mistä pääsee hyppimään ylös laatikoita pitkin shorttiin'. The same place as the part of UnderA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). His words of 2026-10-01, vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'H3a fast cat, boksit joilta voi hyppiä shorttiin', say the same. It takes 12 ExtendedA positions in H3a, at z 97-127. KNOWN LIMIT (H3a's top quarter): 5 of the 12 lie in H3a's top quarter, which his 2026-09-28 words make short ('Short kulkee L:n mallisena H3b:n ja H3a:n yläreuna'), and the game's ExtendedA already tells them from UnderA's; but this split cannot give them short a -- a part may not be named like the area's own callout -- and fast cat must be one region with its UnderA twin, so they are fast cat here until the table can hold the area's own name inside a part's half-cell (the lead's review-round-1 decisions on Story 4.26 (2026-10-01), A4). Junction basis: holds positions of ExtendedA"
+
+[[de_dust2.ExtendedA.split.parts]]
+callout = "short stairs"
+cells = ["G4b", "G4d"]
+junction = true
+junction_source = "the same place as the game's ShortStairs (callout 'short stairs'), whose junction it must share: reittimalli-dust2-2026-09-26.md his words: 'viimeistään short stairs kohdalla ... tulee kontakti'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'G3b,G4d on jo short portaat'; read 'G3b,G4d' as G4b, G4d -- the second G3b of his sentence read as G4b (A29) -- G4b holds no UnderA position, so the reading moves none and stays stated. His short portaat is the game's ShortStairs: Named 'short stairs' by the lead, so the counts merge. The same place as the part of UnderA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). His words of 2026-10-01, vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'G4b,G4d short portaat', settle A29's reading. It takes 15 ExtendedA positions, in G4b's top strip: the header's first clause bites the other way here, the name making a transit area's positions a junction's. Junction basis: the same place as the game's ShortStairs"
 
 [de_dust2.Hole]
 callout = "window"
@@ -1077,6 +1390,57 @@ junction_source = "reittimalli-dust2-2026-09-26.md his words: 'kun ct pelaaja on
 neighbours = 5
 confidence = "stated"
 source = "reittimalli-dust2-2026-09-26.md section 3: LongA = long A; calloutit.md guide: LONG A"
+note = "His long A. Since Story 4.26 the split below names his finer places inside it; every other position, and every rule row, stays long a."
+
+[de_dust2.LongA.split]
+image = "kartta04_sivu4_1024x1024.png"
+origin = [0.0, 0.0]
+cell = [95.75763568282127, 99.32050816714764]
+columns = "ABCDEFGHIJK"
+rows = 11
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_dust2-BombsiteA.png and de_dust2-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_dust2.UnderA.split], checked float-equal (dust2-taulukot-2026-10-01.md section 2.1), so every split of de_dust2 is on one grid. No floor cut (dust2-taulukot-2026-10-01.md section 2.2): no height separates UnderA from short's edge above it (UnderA reaches z 134.7, ExtendedA starts at 94.2) and the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-01 is vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', read as tables in dust2-taulukot-2026-10-01.md and built by the lead's decisions on dust2-taulukot-2026-10-01.md (spec-4-26-dust2-sites.md, section 'Lead decisions on dust2-taulukot-2026-10-01.md'): where his words of 2026-10-01 name a cell they win, and where they are silent his words of 2026-09-28 stand, by his own opening, his words: 'Sait tähän jo aika tarkan kuvauksen aiemmin'. A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. long a is the area's own callout, his long A (reittimalli-dust2-2026-09-26.md), and a auto and the ramp's bottom are finer places on it; vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'longia on I4b ja J4a osat, jotka eivät ole CT crossia elia ruudun alaosat poislukien ylin neljännes joka on sitä CT crossia'. His places on this split, from his quoted words: a auto, ramp, ct cross."
+
+[de_dust2.LongA.split.fit]
+sx = 0.22531208395957947
+sy = 0.23369531333446503
+bx = 559.6740112304688
+by = 768.7691650390625
+
+[[de_dust2.LongA.split.parts]]
+callout = "a auto"
+cells = ["J3d", "J4b"]
+regions = [
+  { cell = "J4d", y = [0.0, 0.25], words = "ja hieman J4d" },
+]
+junction = true
+junction_source = "holds positions of LongA, whose entry is a junction: reittimalli-dust2-2026-09-26.md his words: 'kun ct pelaaja on long A kulmalla mistä näkee longboxiin'"
+confidence = "inferred"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'Auto ruuduissa J3d,J4b ja hieman J4d, auton päälle voi hyppiä jolloin eri korkeus'; his 2026-09-28 words (puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9): 'J4d,J4b,J3d ovat auto'. He calls both cars auto; asked how to tell them apart (dust2-taulukot-2026-10-01.md section 6) he answered, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'Käytä a auto ja b auto'. His 'hieman J4d' (a little of J4d) is a size he did not give, read as J4d's top quarter, where the car runs on from J4b -- the lead's decision #11 on dust2-taulukot-2026-10-01.md; it moves 9 LongA positions against the whole of J4d, so a auto is inferred until he answers that. The roof: the band rule passes on J3d, J4b and J4d's top quarter (24 ticks at z -10..3, 5 at 41..61, the largest gap 37.79 from 3.44 to 41.23, edge 22.33; dust2-taulukot-2026-10-01.md section 3), but the roof and the ground beside it are both his a auto, so no band is built (the lead's decision #12). The same place as the part of UnderA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). It takes 29 LongA positions (J3d 12, J4b 15, J4d 2), 5 of them on the roof. Junction basis: holds positions of LongA"
+
+[[de_dust2.LongA.split.parts]]
+callout = "ct cross"
+cells = ["I3d", "J3c"]
+regions = [
+  { cell = "I4b", y = [0.0, 0.25], words = "I4b ja J4a yläreinat" },
+  { cell = "J4a", y = [0.0, 0.25], words = "J4a yläreinat" },
+]
+junction = true
+junction_source = "vastaus-dust2-sitet-2026-10-01.md section 'ct cross: choice point or transit (2026-10-01, evening)', his words: 'ct cross voisi olla valintapaikka, koska long on niin pitkä. Jos on menty ct crossiin asti niin silloin ollaan menossa A:lle eikä otettu vain longia/pittiä haltuun' -- hedged ('voisi olla'): he names it a choice point with a 'could be', in answer to the question whether it is one"
+confidence = "stated"
+note = "The junction rests on his hedged 'voisi olla', his answer to the question whether ct cross is a choice point."
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'I3d,I4b,J3c,J4a,I4b ovat Ct cross'; I4b written twice, read as one (A30), moving no position. Narrowed by his answer of 2026-10-01, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'I3d, J3c ja I4b ja J4a yläreinat ovat ct crossia' and his words: 'longia on I4b ja J4a osat, jotka eivät ole CT crossia elia ruudun alaosat poislukien ylin neljännes joka on sitä CT crossia' -- his 'yläreinat' (top edges) is his own 'ylin neljännes', the top quarter of I4b and J4a; the rest of the two is long a. It moves no UnderA position (UnderA has none in I4b or J4a). A junction since his answer, vastaus-dust2-sitet-2026-10-01.md section 'ct cross: choice point or transit (2026-10-01, evening)': the area it lies in, UnderA, is transit, but his own words name ct cross a choice point -- past it the players are going to A, not only holding long or pit -- and his words win (the header's part junction rule). The same place as the part of UnderA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). On LongA's split it takes 72 LongA positions. Junction basis: his words make it a junction, a choice point: 'ct cross voisi olla valintapaikka, koska long on niin pitkä. Jos on menty ct crossiin asti niin silloin ollaan menossa A:lle eikä otettu vain longia/pittiä haltuun'; it holds positions of LongA"
+
+[[de_dust2.LongA.split.parts]]
+callout = "ramp"
+cells = ["J2c", "J3a", "J3b", "J2d", "J2b", "J2a"]
+regions = [
+  { cell = "I3b", x = [0.6666666666666666, 1.0], words = "I3b ja 12d oikean reunan kolmannes" },
+  { cell = "I2d", x = [0.6666666666666666, 1.0], words = "I3b ja 12d oikean reunan kolmannes" },
+]
+junction = true
+junction_source = "the same place as the game's ARamp (callout 'ramp'), whose junction it must share: reittimalli-dust2-2026-09-26.md his words: 'siinä crosin kohdalla on paljastunut ct spawniin'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'I3b ja 12d oikean reunan kolmannes, sekä J2c,J3a,J3b,J2d,J2b,J2a ovat A ramppi'; read '12d' as I2d, as his next sentence pairs 'I2d ja I3b paitsi rampin alue' (A7) -- I2d holds no UnderA position, so on UnderA the reading moves none; on LongA's split I2d holds no position; stated. His A ramppi is the game's ARamp, callout ramp, so the counts merge. Not broad since Story 4.26: goose moved to I1c and I1d by his words of 2026-10-01, so J2a is ramp's whole and ramp yields to no earlier part (A26 is history); I2d's and I3b's thirds are ramp's (on UnderA's split a site, after it, yields to them; this split has no a site part, and the rest is the area's own callout). His words of 2026-10-01 keep I3b's third; asked about I2d's (dust2-taulukot-2026-10-01.md ambiguity 5) he answered, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'ramppia'. And the ramp's bottom on long: his words: 'ramppi alkaa J3a tasolta', so J3a and J3b are ramp on LongA's split too. The same place as the part of UnderA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). On LongA's split it takes 20 LongA positions (J3a 15, J3b 2, I3b's third 3): his 'ramppi alkaa J3a tasolta' puts the bottom of the ramp at J3a's level. Junction basis: the same place as the game's ARamp"
 
 [de_dust2.LongDoors]
 callout = "long box"
@@ -1100,6 +1464,41 @@ junction_source = "reittimalli-dust2-2026-09-26.md his words: 'mid ovilla tulee 
 neighbours = 7
 confidence = "stated"
 source = "reittimalli-dust2-2026-09-26.md section 3: MidDoors = mid ovet / tuplaovet; calloutit.md guide: MID DOORS"
+note = "His mid ovet. Since Story 4.26 the split below names his finer places inside it; every other position, and every rule row, stays mid doors."
+
+[de_dust2.MidDoors.split]
+image = "kartta04_sivu4_1024x1024.png"
+origin = [0.0, 0.0]
+cell = [95.75763568282127, 99.32050816714764]
+columns = "ABCDEFGHIJK"
+rows = 11
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_dust2-BombsiteA.png and de_dust2-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_dust2.UnderA.split], checked float-equal (dust2-taulukot-2026-10-01.md section 2.1), so every split of de_dust2 is on one grid. No floor cut (dust2-taulukot-2026-10-01.md section 2.2): no height separates UnderA from short's edge above it (UnderA reaches z 134.7, ExtendedA starts at 94.2) and the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-01 is vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', read as tables in dust2-taulukot-2026-10-01.md and built by the lead's decisions on dust2-taulukot-2026-10-01.md (spec-4-26-dust2-sites.md, section 'Lead decisions on dust2-taulukot-2026-10-01.md'): where his words of 2026-10-01 name a cell they win, and where they are silent his words of 2026-09-28 stand, by his own opening, his words: 'Sait tähän jo aika tarkan kuvauksen aiemmin'. A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. mid doors is the area's own callout, his mid ovet (reittimalli-dust2-2026-09-26.md), and the bottom of b slope is a finer place inside it: the hill runs on into the game's MidDoors until it flattens there (vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'kunnes se tasaantuu Mid ovien kohdilla noin'). His places on this split, from his quoted words: raksatelineet, b slope."
+
+[de_dust2.MidDoors.split.fit]
+sx = 0.22531208395957947
+sy = 0.23369531333446503
+bx = 559.6740112304688
+by = 768.7691650390625
+
+[[de_dust2.MidDoors.split.parts]]
+callout = "raksatelineet"
+cells = ["D2c", "D2a"]
+junction = true
+junction_source = "holds none of the split area's positions; its region lies in the game's BDoors (36 of the 36 live ticks of the map inside it), whose entry is a junction: reittimalli-dust2-2026-09-26.md contact points: 'beyond mid doors on mid-to-B: CT spawn, B window or B doors'"
+confidence = "stated"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'D2c ja D2a ovat raksatelineet jossa voi olla eri korkeudella kuin slopessa' -- the guide's SCAFFOLD. D2c is also his b slope, and there raksatelineet fails the band rule of the callouts.toml header (D2c holds a continuous climb from the slope at z -2 to the window at 111, and the scaffold top at 139, 5 ticks, lies 28.30 units over it, under 36; dust2-taulukot-2026-10-01.md section 3), so raksatelineet comes first and b slope yields D2c to it: a known limit, which names D2c's 8 slope-level positions raksatelineet (the lead's decision #18 on dust2-taulukot-2026-10-01.md). The same place as the part of BDoors's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). On MidDoors's split it holds no position; it is written so that D2c is raksatelineet on both splits (the lead's review-round-1 decisions on Story 4.26 (2026-10-01), A6). Junction basis: holds none of the split area's positions; its region lies in the game's BDoors (36 of the 36 live ticks of the map inside it)"
+
+[[de_dust2.MidDoors.split.parts]]
+callout = "b slope"
+cells = ["D2c", "D3a", "D3c", "D2d", "D3b"]
+regions = [
+  { cell = "D3d", x = [0.0, 0.75], words = "kunnes se tasaantuu Mid ovien kohdilla noin" },
+]
+broad = true
+junction = true
+junction_source = "holds positions of MidDoors, whose entry is a junction: reittimalli-dust2-2026-09-26.md his words: 'mid ovilla tulee yleensä kontakti'"
+confidence = "inferred"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'B slope on mäki joka on alue sarakkeesta D2c,D3a,D3c kohti midin tuplaovia ja CT spawnia menemä viettävä mäki alaspäin kohti tosiaan ct spawnia' and his words: 'Kun mäki loppuu ei olla enää B slopessa'; asked where the hill ends (dust2-taulukot-2026-10-01.md ambiguity 17) he answered, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'Jatkuu kyllä. Voit ajatella, että sarakkeesta D (D3a,D3c) kaikki kohdat joissa z arvo vaihtelee kunnes se tasaantuu Mid ovien kohdilla noin ovat B slopea (B slope eli se kalteva nouseva mäki kohti B siteä)'. Measured (the live ticks of BDoors and MidDoors by quarter half-cell, median z): the hill falls from z 3 at D3a's left to -76 at D3b's right, and from 24 to -98 along D2c-D2d and D3c-D3d; from the E column on it stays within -105..-111 across E3a and E3b (E2c flat at -83), the flat at mid doors. So the lead's region D2d from 'kaikki kohdat joissa z arvo vaihtelee kunnes se tasaantuu Mid ovien kohdilla noin' and the lead's region D3b from 'kaikki kohdat joissa z arvo vaihtelee kunnes se tasaantuu Mid ovien kohdilla noin' are b slope too, and the lead's region D3d from 'kunnes se tasaantuu Mid ovien kohdilla noin', but its right quarter: there the 4 live ticks (BDoors 2, MidDoors 2) lie at z -108.9 to -99.6, median -102.1, already at the flat the E column holds (E3a's left quarter, median -106.2), while D3d's third quarter still falls (median -89.5) (the lead's review-round-1 decisions on Story 4.26 (2026-10-01), A6). The end is our reading of his 'noin' and the choice moves positions, so b slope is inferred. A slope, so no band. Broad on BDoors's split: it yields to every earlier part it overlaps, so D2c is raksatelineet's (a known limit, its source says why). It takes 39 MidDoors positions (D2d 3, D3a 1, D3b 29, D3d 6). Broad on MidDoors's split too, after raksatelineet, so D2c is raksatelineet's on both splits. Junction basis: holds positions of MidDoors"
 
 [de_dust2.Middle]
 callout = "mid"
@@ -1201,11 +1600,14 @@ by = 768.7691650390625
 
 [[de_dust2.UnderA.split.parts]]
 callout = "goose"
-cells = ["I2b", "J2a"]
+cells = ["I1c", "I1d"]
+regions = [
+  { cell = "I2b", x = [0.25, 1.0], words = "Ulottuu" },
+]
 junction = true
-junction_source = "holds none of the split area's positions; its region lies in the game's BombsiteA (37 of the 51 live ticks of the map inside it), whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
-confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'I2b,J2a ovat goose'; finer than ramp in J2a (A26). Junction basis: holds none of the split area's positions; its region lies in the game's BombsiteA (37 of the 51 live ticks of the map inside it)"
+junction_source = "holds none of the split area's positions; its region lies in the game's BombsiteA (58 of the 64 live ticks of the map inside it), whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "inferred"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'I1c,I1d Goose, tässä ihan pienet portaat A siteltä Ruuduissa I2a,I2b joten voi olla hieman korkeuseroa A siten kanssa'; asked whether goose's raised floor reaches into I2b (dust2-taulukot-2026-10-01.md ambiguities 1-2), he answered, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'Ulottuu' (it reaches) -- an answer about goose's floor, not about the site's floor beside it. I2b's 37 BombsiteA ticks: 20 at goose's height (z 123.9 to 127.2), 1 at 159.1, and 16 at z 94.3 to 119.8, 9 of them on the site floor (z 94.3 to 98.5), all 9 in I2b's left quarter (x below 0.2). The band rule of the callouts.toml header refuses I2b a band: it fails the band rule (the largest gap 31.89 units, under 36), so a fraction decides: the lead's region I2b from 'Ulottuu', I2b but its left quarter (the size rule's edge), which leaves all 9 site-floor positions to a site (the lead's review-round-1 decisions on Story 4.26 (2026-10-01), A5). The reading moves counted positions, so goose is inferred. KNOWN LIMIT (I2b's left quarter): 3 goose-height positions lie there too and stay a site, and 4 positions on the stairs (z 104 to 120) lie in goose's region and are goose. KNOWN LIMIT, I2a: his stairs in I2a are not goose, and the band rule cannot separate goose's positions there either: I2a fails the band rule (the largest gap 12.18 units), so I2a stays a site. The same place as the part of BombsiteA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). Junction basis: holds none of the split area's positions; its region lies in the game's BombsiteA (58 of the 64 live ticks of the map inside it)"
 
 [[de_dust2.UnderA.split.parts]]
 callout = "short a"
@@ -1218,7 +1620,7 @@ regions = [
 ]
 junction = false
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H2d,H2b rivillä siitä G2a:n alareuna,H2d,H2c,G2d,G3b;G3d' and his words: 'nämä erottaa shortin ruuduista G3b,G3d z koordinaatti'; H2d written twice, read as one; G2a's edge sized by the size rule he confirmed for edges and corners (callouts.toml header). His short is the game's ExtendedA (its ticks are the upper level of G3b and G3d, zbands-mitattu-2026-09-28.md): Named 'short a' by the lead, so the counts merge. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, G3b and G3d): the live ticks of the map inside the region fall in two levels, the largest gap running from -113.00 to 95.48 (47 below, 81 above); the band edge -8.76 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's ExtendedA (81 of 81 ticks above), the lower the game's CTSpawn (47 of 47 below); short is the upper level. H3b's raised level by his answer after Story 4.20, puoliruudut-vastaus-2-2026-09-28.md section 'His answers after Story 4.20, evening 2026-09-28', answer 1, his words: 'H3b:stä vajaa puolet yläreunasta on ylempänä shortissa, ja vähän yli puolet ovat alempana elevatorissa ct ramp alueella': short is the upper level of H3b's top part. The top part is y [0, 0.5] -- his 'vajaa puolet' (a little under half) is a fraction he did not quantify, so it is read as the half, and the band does the real separation. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, H3b top half): the live ticks of the map inside the region fall in two levels, the largest gap running from 43.81 to 127.03 (18 below, 5 above); the band edge 85.42 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's BombsiteA (3 of 5 ticks above, with ExtendedA 2), the lower the game's UnderA (18 of 18 below), elevator's own area; short is the upper level of H3b too; the ground below is elevator. The half for his 'vajaa puolet' is a reading that moves no position: none of the 18 UnderA positions in H3b's top part lies above the band (zbands-mitattu-2026-09-28.md), so it stays stated. NOT BUILT: his 'H3a:n yläreuna' (A28): H3a's top edge fails the band rule of the callouts.toml header (7 live ticks, one of them below the largest gap; zbands-mitattu-2026-09-28.md), so fast cat keeps it. Junction basis: the same place as the game's ExtendedA -- transit; it holds no UnderA position since his answer after Story 4.20 (the UnderA positions of H3b lie below its band), and UnderA is transit too, so the two rules agree"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H2d,H2b rivillä siitä G2a:n alareuna,H2d,H2c,G2d,G3b;G3d' and his words: 'nämä erottaa shortin ruuduista G3b,G3d z koordinaatti'; H2d written twice, read as one; G2a's edge sized by the size rule he confirmed for edges and corners (callouts.toml header). His short is the game's ExtendedA (its ticks are the upper level of G3b and G3d, zbands-mitattu-2026-09-28.md): Named 'short a' by the lead, so the counts merge. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, G3b and G3d): the live ticks of the map inside the region fall in two levels, the largest gap running from -113.00 to 95.48 (47 below, 81 above); the band edge -8.76 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's ExtendedA (81 of 81 ticks above), the lower the game's CTSpawn (47 of 47 below); short is the upper level. H3b's raised level by his answer after Story 4.20, puoliruudut-vastaus-2-2026-09-28.md section 'His answers after Story 4.20, evening 2026-09-28', answer 1, his words: 'H3b:stä vajaa puolet yläreunasta on ylempänä shortissa, ja vähän yli puolet ovat alempana elevatorissa ct ramp alueella': short is the upper level of H3b's top part. The top part is y [0, 0.5] -- his 'vajaa puolet' (a little under half) is a fraction he did not quantify, so it is read as the half, and the band does the real separation. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, H3b top half): the live ticks of the map inside the region fall in two levels, the largest gap running from 43.81 to 127.03 (18 below, 5 above); the band edge 85.42 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's BombsiteA (3 of 5 ticks above, with ExtendedA 2), the lower the game's UnderA (18 of 18 below), elevator's own area; short is the upper level of H3b too; the ground below is elevator. The half for his 'vajaa puolet' is a reading that moves no position: none of the 18 UnderA positions in H3b's top part lies above the band (zbands-mitattu-2026-09-28.md), so it stays stated. NOT BUILT: his 'H3a:n yläreuna' (A28): H3a's top edge fails the band rule of the callouts.toml header (7 live ticks, one of them below the largest gap; zbands-mitattu-2026-09-28.md), so fast cat keeps it. The same place as the part of BombsiteA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). Junction basis: the same place as the game's ExtendedA -- transit; it holds no UnderA position since his answer after Story 4.20 (the UnderA positions of H3b lie below its band), and UnderA is transit too, so the two rules agree"
 
 [[de_dust2.UnderA.split.parts]]
 callout = "elevator"
@@ -1237,7 +1639,7 @@ cells = ["G4b", "G4d"]
 junction = true
 junction_source = "the same place as the game's ShortStairs (callout 'short stairs'), whose junction it must share: reittimalli-dust2-2026-09-26.md his words: 'viimeistään short stairs kohdalla ... tulee kontakti'"
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'G3b,G4d on jo short portaat'; read 'G3b,G4d' as G4b, G4d -- the second G3b of his sentence read as G4b (A29) -- G4b holds no UnderA position, so the reading moves none and stays stated. His short portaat is the game's ShortStairs: Named 'short stairs' by the lead, so the counts merge. Junction basis: the same place as the game's ShortStairs"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'G3b,G4d on jo short portaat'; read 'G3b,G4d' as G4b, G4d -- the second G3b of his sentence read as G4b (A29) -- G4b holds no UnderA position, so the reading moves none and stays stated. His short portaat is the game's ShortStairs: Named 'short stairs' by the lead, so the counts merge. The same place as the part of ExtendedA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). Junction basis: the same place as the game's ShortStairs"
 
 [[de_dust2.UnderA.split.parts]]
 callout = "ct spawn"
@@ -1256,7 +1658,7 @@ callout = "fast cat"
 cells = ["H3a"]
 junction = false
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H3a on fast cat, mistä pääsee hyppimään ylös laatikoita pitkin shorttiin'. Junction basis: holds positions of UnderA"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H3a on fast cat, mistä pääsee hyppimään ylös laatikoita pitkin shorttiin'. The same place as the part of ExtendedA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). His words of 2026-10-01, vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'H3a fast cat, boksit joilta voi hyppiä shorttiin', say the same. Junction basis: holds positions of UnderA"
 
 [[de_dust2.UnderA.split.parts]]
 callout = "ct ramppi"
@@ -1267,18 +1669,38 @@ source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his 
 
 [[de_dust2.UnderA.split.parts]]
 callout = "ct cross"
-cells = ["I3d", "I4b", "J3c", "J4a"]
-junction = false
+cells = ["I3d", "J3c"]
+regions = [
+  { cell = "I4b", y = [0.0, 0.25], words = "I4b ja J4a yläreinat" },
+  { cell = "J4a", y = [0.0, 0.25], words = "J4a yläreinat" },
+]
+junction = true
+junction_source = "vastaus-dust2-sitet-2026-10-01.md section 'ct cross: choice point or transit (2026-10-01, evening)', his words: 'ct cross voisi olla valintapaikka, koska long on niin pitkä. Jos on menty ct crossiin asti niin silloin ollaan menossa A:lle eikä otettu vain longia/pittiä haltuun' -- hedged ('voisi olla'): he names it a choice point with a 'could be', in answer to the question whether it is one"
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'I3d,I4b,J3c,J4a,I4b ovat Ct cross'; I4b written twice, read as one (A30), moving no position. Junction basis: holds positions of UnderA"
+note = "The junction rests on his hedged 'voisi olla', his answer to the question whether ct cross is a choice point."
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'I3d,I4b,J3c,J4a,I4b ovat Ct cross'; I4b written twice, read as one (A30), moving no position. Narrowed by his answer of 2026-10-01, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'I3d, J3c ja I4b ja J4a yläreinat ovat ct crossia' and his words: 'longia on I4b ja J4a osat, jotka eivät ole CT crossia elia ruudun alaosat poislukien ylin neljännes joka on sitä CT crossia' -- his 'yläreinat' (top edges) is his own 'ylin neljännes', the top quarter of I4b and J4a; the rest of the two is long a. It moves no UnderA position (UnderA has none in I4b or J4a). A junction since his answer, vastaus-dust2-sitet-2026-10-01.md section 'ct cross: choice point or transit (2026-10-01, evening)': the area it lies in, UnderA, is transit, but his own words name ct cross a choice point -- past it the players are going to A, not only holding long or pit -- and his words win (the header's part junction rule). The same place as the part of LongA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). Junction basis: his words make it a junction, a choice point: 'ct cross voisi olla valintapaikka, koska long on niin pitkä. Jos on menty ct crossiin asti niin silloin ollaan menossa A:lle eikä otettu vain longia/pittiä haltuun'; it holds positions of UnderA"
 
 [[de_dust2.UnderA.split.parts]]
-callout = "auto"
-cells = ["J4d", "J4b", "J3d"]
+callout = "long a"
+regions = [
+  { cell = "I4b", y = [0.25, 1.0], words = "I4b ja J4a osat, jotka eivät ole CT crossia elia ruudun alaosat poislukien ylin neljännes" },
+  { cell = "J4a", y = [0.25, 1.0], words = "J4a osat, jotka eivät ole CT crossia elia ruudun alaosat poislukien ylin neljännes" },
+]
 junction = true
-junction_source = "holds none of the split area's positions; its region lies in the game's LongA (38 of the 38 live ticks of the map inside it), whose entry is a junction: reittimalli-dust2-2026-09-26.md his words: 'kun ct pelaaja on long A kulmalla mistä näkee longboxiin'"
+junction_source = "the same place as the game's LongA (callout 'long a'), whose junction it must share: reittimalli-dust2-2026-09-26.md his words: 'kun ct pelaaja on long A kulmalla mistä näkee longboxiin'"
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'J4d,J4b,J3d ovat auto'. Junction basis: holds none of the split area's positions; its region lies in the game's LongA (38 of the 38 live ticks of the map inside it)"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'longia on I4b ja J4a osat, jotka eivät ole CT crossia elia ruudun alaosat poislukien ylin neljännes joka on sitä CT crossia'. His longia is the game's LongA: Named 'long a' by the lead, LongA's own callout, so the counts merge. Written on UnderA's split so that the nearest rule cannot give the rest of I4b and J4a another place: without it they inherited a auto (the lead's review-round-1 decisions on Story 4.26 (2026-10-01), item 18). It holds no UnderA position. KNOWN LIMIT (J4d): the rest of J4d below a auto's top quarter still inherits a auto by the nearest rule; he does not name it, and no UnderA position lies there. Junction basis: the same place as the game's LongA"
+
+[[de_dust2.UnderA.split.parts]]
+callout = "a auto"
+cells = ["J3d", "J4b"]
+regions = [
+  { cell = "J4d", y = [0.0, 0.25], words = "ja hieman J4d" },
+]
+junction = true
+junction_source = "holds none of the split area's positions; its region lies in the game's LongA (29 of the 29 live ticks of the map inside it), whose entry is a junction: reittimalli-dust2-2026-09-26.md his words: 'kun ct pelaaja on long A kulmalla mistä näkee longboxiin'"
+confidence = "inferred"
+source = "vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'Auto ruuduissa J3d,J4b ja hieman J4d, auton päälle voi hyppiä jolloin eri korkeus'; his 2026-09-28 words (puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9): 'J4d,J4b,J3d ovat auto'. He calls both cars auto; asked how to tell them apart (dust2-taulukot-2026-10-01.md section 6) he answered, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'Käytä a auto ja b auto'. His 'hieman J4d' (a little of J4d) is a size he did not give, read as J4d's top quarter, where the car runs on from J4b -- the lead's decision #11 on dust2-taulukot-2026-10-01.md; it moves 9 LongA positions against the whole of J4d, so a auto is inferred until he answers that. The roof: the band rule passes on J3d, J4b and J4d's top quarter (24 ticks at z -10..3, 5 at 41..61, the largest gap 37.79 from 3.44 to 41.23, edge 22.33; dust2-taulukot-2026-10-01.md section 3), but the roof and the ground beside it are both his a auto, so no band is built (the lead's decision #12). The same place as the part of LongA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). Junction basis: holds none of the split area's positions; its region lies in the game's LongA (29 of the 29 live ticks of the map inside it)"
 
 [[de_dust2.UnderA.split.parts]]
 callout = "ramp"
@@ -1287,11 +1709,10 @@ regions = [
   { cell = "I3b", x = [0.6666666666666666, 1.0], words = "I3b ja 12d oikean reunan kolmannes" },
   { cell = "I2d", x = [0.6666666666666666, 1.0], words = "I3b ja 12d oikean reunan kolmannes" },
 ]
-broad = true
 junction = true
 junction_source = "the same place as the game's ARamp (callout 'ramp'), whose junction it must share: reittimalli-dust2-2026-09-26.md his words: 'siinä crosin kohdalla on paljastunut ct spawniin'"
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'I3b ja 12d oikean reunan kolmannes, sekä J2c,J3a,J3b,J2d,J2b,J2a ovat A ramppi'; read '12d' as I2d, as his next sentence pairs 'I2d ja I3b paitsi rampin alue' (A7) -- I2d holds no UnderA position, so the reading moves none and stays stated. His A ramppi is the game's ARamp, callout ramp, so the counts merge. Broad: it yields to every earlier part it overlaps, so J2a, which goose names whole before it, is goose's -- ramp holds none of J2a (A26); and I2d's and I3b's thirds are ramp's, which a site after it yields to. Junction basis: the same place as the game's ARamp"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'I3b ja 12d oikean reunan kolmannes, sekä J2c,J3a,J3b,J2d,J2b,J2a ovat A ramppi'; read '12d' as I2d, as his next sentence pairs 'I2d ja I3b paitsi rampin alue' (A7) -- I2d holds no UnderA position, so the reading moves none and stays stated. His A ramppi is the game's ARamp, callout ramp, so the counts merge. Not broad since Story 4.26: goose moved to I1c and I1d by his words of 2026-10-01, so J2a is ramp's whole and ramp yields to no earlier part (A26 is history); I2d's and I3b's thirds are ramp's, which a site after it yields to. His words of 2026-10-01 keep I3b's third; asked about I2d's (dust2-taulukot-2026-10-01.md ambiguity 5) he answered, vastaus-dust2-sitet-2026-10-01.md section 'His answers to the lead's eight questions (2026-10-01)', his words: 'ramppia'. And the ramp's bottom on long: his words: 'ramppi alkaa J3a tasolta', so J3a and J3b are ramp on LongA's split too. The same place as the part of BombsiteA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). Junction basis: the same place as the game's ARamp"
 
 [[de_dust2.UnderA.split.parts]]
 callout = "a site"
@@ -1307,7 +1728,7 @@ callout = "gandalf"
 cells = ["H2a", "G2b"]
 junction = false
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H2a ja G2b ovat gandalf'. Junction basis: holds none of the split area's positions; its region lies in the game's ExtendedA (16 of the 16 live ticks of the map inside it)"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'H2a ja G2b ovat gandalf'. The same place as the part of ExtendedA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). His words of 2026-10-01, vastaus-dust2-sitet-2026-10-01.md section 'Verbatim', his words: 'H2a gandalf, shortin kanssa samaa tasoa', name H2a; his G2b of 2026-09-28 is carried, his words, by the lead's decision #3 on dust2-taulukot-2026-10-01.md. Junction basis: holds none of the split area's positions; its region lies in the game's ExtendedA (16 of the 16 live ticks of the map inside it)"
 
 [[de_dust2.UnderA.split.parts]]
 callout = "ninja"
@@ -1315,7 +1736,7 @@ cells = ["G2a"]
 broad = true
 junction = false
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'G2a on ninja'; broad: it yields to every earlier part it overlaps, taking what short a's bottom edge leaves in G2a (A31). Junction basis: holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's ExtendedA by that entry's measurement ('the top of SHORT A, up to NINJA')"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 9, his words: 'G2a on ninja'; broad: it yields to every earlier part it overlaps, taking what short a's bottom edge leaves in G2a (A31). The same place as the part of ExtendedA's split (dust2-taulukot-2026-10-01.md section 6; one place on one floor is one region). Junction basis: holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's ExtendedA by that entry's measurement ('the top of SHORT A, up to NINJA')"
 
 [de_dust2.UpperTunnel]
 callout = "upper b"

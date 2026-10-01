@@ -2,51 +2,13 @@
   "blocks": {
     "1e1965abbc06133b/de_dust2/CT/eco": {
       "lines": [
-        "Reitti: long a, jopa 3 pelaajaa (5/8 kierroksesta, 3/3 ottelussa, uusin mukana)",
-        "Reitti: mid doors, 2 pelaajaa (4/8 kierroksesta, 2/3 ottelussa, ei uusimmassa)"
+        "Reitti: mid doors, jopa 3 pelaajaa (5/8 kierroksesta, 3/3 ottelussa, uusin mukana)",
+        "Reitti: long a, 2 pelaajaa (4/8 kierroksesta, 2/3 ottelussa, ei uusimmassa)",
+        "Reitti: b slope (päätelty) -> b site, 2 pelaajaa (3/8 kierroksesta, 3/3 ottelussa, uusin mukana)"
       ],
       "patterns": [
         {
           "newest": true,
-          "path": [
-            [
-              "long a",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              4,
-              2
-            ],
-            [
-              1,
-              4,
-              2
-            ],
-            [
-              1,
-              8,
-              3
-            ],
-            [
-              2,
-              2,
-              2
-            ],
-            [
-              2,
-              4,
-              2
-            ]
-          ],
-          "stayed": false
-        },
-        {
-          "newest": false,
           "path": [
             [
               "mid doors",
@@ -57,6 +19,11 @@
           ],
           "rounds": [
             [
+              0,
+              2,
+              3
+            ],
+            [
               1,
               4,
               2
@@ -83,7 +50,7 @@
           "newest": false,
           "path": [
             [
-              "b doors",
+              "long a",
               null,
               null,
               null
@@ -92,12 +59,86 @@
           "rounds": [
             [
               1,
+              4,
+              2
+            ],
+            [
+              1,
+              8,
+              2
+            ],
+            [
+              2,
+              2,
+              2
+            ],
+            [
+              2,
+              4,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "b slope",
+              "inferred",
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              2,
+              2
+            ],
+            [
+              1,
               5,
               2
             ],
             [
               2,
-              11,
+              2,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "b slope",
+              "inferred",
+              null,
+              null
+            ],
+            [
+              "b site",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              2,
+              2
+            ],
+            [
+              1,
+              5,
+              2
+            ],
+            [
+              2,
+              2,
               2
             ]
           ],
@@ -145,36 +186,6 @@
             [
               "long box",
               null,
-              "long a",
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              2,
-              2,
-              1
-            ],
-            [
-              2,
-              4,
-              1
-            ]
-          ],
-          "stayed": true
-        },
-        {
-          "newest": false,
-          "path": [
-            [
-              "long a",
-              null,
-              null,
-              null
-            ],
-            [
-              "long box",
-              null,
               null,
               null
             ]
@@ -201,11 +212,11 @@
     },
     "1e1965abbc06133b/de_dust2/CT/full": {
       "lines": [
-        "Reitti: long a, jopa 3 pelaajaa (14/23 kierroksesta, 3/3 ottelussa, uusin mukana)",
-        "Reitti: mid doors, 2 pelaajaa (7/23 kierroksesta, 3/3 ottelussa, uusin mukana)",
+        "Reitti: long a, jopa 3 pelaajaa (11/23 kierroksesta, 3/3 ottelussa, uusin mukana)",
+        "Reitti: b slope (päätelty), 2 pelaajaa (8/23 kierroksesta, 2/3 ottelussa, ei uusimmassa)",
         "Reitti: short stairs, 2 pelaajaa (7/23 kierroksesta, 3/3 ottelussa, uusin mukana)",
-        "Reitti: b doors -> b site, 1 pelaaja jää (5/23 kierroksesta, 3/3 ottelussa, uusin mukana)",
-        "Reitti: b doors, 2 pelaajaa (4/23 kierroksesta, 2/3 ottelussa, ei uusimmassa)",
+        "Reitti: b slope (päätelty) -> b site, 1 pelaaja jää (4/23 kierroksesta, 3/3 ottelussa, uusin mukana)",
+        "Reitti: mid doors, 2 pelaajaa (4/23 kierroksesta, 2/3 ottelussa, uusin mukana)",
         "Reitti: short stairs, 1 pelaaja jää (3/23 kierroksesta, 2/3 ottelussa, ei uusimmassa)",
         "Reitti: short stairs -> catwalk ⇄ short stairs, 1 pelaaja jää (3/23 kierroksesta, 2/3 ottelussa, ei uusimmassa)"
       ],
@@ -224,11 +235,6 @@
             [
               0,
               3,
-              3
-            ],
-            [
-              0,
-              6,
               2
             ],
             [
@@ -248,28 +254,18 @@
             ],
             [
               1,
-              2,
+              3,
               2
             ],
             [
               1,
-              3,
-              3
-            ],
-            [
-              1,
               7,
-              3
+              2
             ],
             [
               1,
               12,
               3
-            ],
-            [
-              2,
-              5,
-              2
             ],
             [
               2,
@@ -295,49 +291,54 @@
           "stayed": false
         },
         {
-          "newest": true,
+          "newest": false,
           "path": [
             [
-              "mid doors",
-              null,
+              "b slope",
+              "inferred",
               null,
               null
             ]
           ],
           "rounds": [
             [
-              0,
-              6,
-              2
-            ],
-            [
-              0,
-              7,
-              2
-            ],
-            [
-              0,
-              11,
+              1,
+              3,
               2
             ],
             [
               1,
-              7,
+              10,
               2
             ],
             [
               1,
-              11,
+              12,
               2
             ],
             [
               2,
-              5,
+              7,
               2
             ],
             [
               2,
               8,
+              2
+            ],
+            [
+              2,
+              9,
+              2
+            ],
+            [
+              2,
+              10,
+              2
+            ],
+            [
+              2,
+              12,
               2
             ]
           ],
@@ -396,8 +397,8 @@
           "newest": true,
           "path": [
             [
-              "b doors",
-              null,
+              "b slope",
+              "inferred",
               null,
               null
             ],
@@ -428,20 +429,15 @@
               2,
               7,
               1
-            ],
-            [
-              2,
-              10,
-              1
             ]
           ],
           "stayed": true
         },
         {
-          "newest": false,
+          "newest": true,
           "path": [
             [
-              "b doors",
+              "mid doors",
               null,
               null,
               null
@@ -449,23 +445,23 @@
           ],
           "rounds": [
             [
-              1,
-              3,
+              0,
+              6,
+              2
+            ],
+            [
+              0,
+              7,
+              2
+            ],
+            [
+              0,
+              11,
               2
             ],
             [
               1,
-              10,
-              2
-            ],
-            [
-              2,
-              10,
-              2
-            ],
-            [
-              2,
-              12,
+              11,
               2
             ]
           ],
@@ -536,126 +532,6 @@
           "stayed": true
         },
         {
-          "newest": false,
-          "path": [
-            [
-              "b doors",
-              null,
-              null,
-              null
-            ],
-            [
-              "b site",
-              null,
-              "b doors",
-              null
-            ],
-            [
-              "mid doors",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              1,
-              3,
-              1
-            ],
-            [
-              2,
-              9,
-              1
-            ]
-          ],
-          "stayed": true
-        },
-        {
-          "newest": false,
-          "path": [
-            [
-              "b doors",
-              null,
-              null,
-              null
-            ],
-            [
-              "mid doors",
-              null,
-              null,
-              null
-            ],
-            [
-              "ct spawn",
-              null,
-              null,
-              null
-            ],
-            [
-              "ct ramppi",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              1,
-              3,
-              1
-            ],
-            [
-              2,
-              12,
-              1
-            ]
-          ],
-          "stayed": true
-        },
-        {
-          "newest": true,
-          "path": [
-            [
-              "long a",
-              null,
-              null,
-              null
-            ],
-            [
-              "ct spawn",
-              null,
-              null,
-              null
-            ],
-            [
-              "mid doors",
-              null,
-              null,
-              null
-            ],
-            [
-              "b doors",
-              null,
-              "mid doors",
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              7,
-              1
-            ],
-            [
-              1,
-              2,
-              1
-            ]
-          ],
-          "stayed": true
-        },
-        {
           "newest": true,
           "path": [
             [
@@ -704,6 +580,48 @@
             [
               1,
               9,
+              1
+            ]
+          ],
+          "stayed": true
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "mid doors",
+              null,
+              null,
+              null
+            ],
+            [
+              "b slope",
+              "inferred",
+              null,
+              null
+            ],
+            [
+              "b doors",
+              null,
+              "b slope",
+              "inferred"
+            ],
+            [
+              "mid doors",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              5,
+              1
+            ],
+            [
+              2,
+              5,
               1
             ]
           ],
@@ -768,30 +686,6 @@
             ]
           ],
           "stayed": true
-        },
-        {
-          "newest": false,
-          "path": [
-            [
-              "long a",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              2,
-              3,
-              1
-            ],
-            [
-              2,
-              8,
-              1
-            ]
-          ],
-          "stayed": true
         }
       ]
     },
@@ -801,7 +695,8 @@
     },
     "1e1965abbc06133b/de_dust2/CT/pistol": {
       "lines": [
-        "Reitti: short stairs, jopa 3 pelaajaa (3/3 kierroksesta, uusin mukana)"
+        "Reitti: short stairs, jopa 3 pelaajaa (3/3 kierroksesta, uusin mukana)",
+        "Reitti: short stairs -> catwalk ⇄ short stairs, 1 pelaaja jää (2/3 kierroksesta, ei uusimmassa)"
       ],
       "patterns": [
         {
@@ -832,6 +727,36 @@
             ]
           ],
           "stayed": false
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "short stairs",
+              null,
+              null,
+              null
+            ],
+            [
+              "catwalk",
+              null,
+              "short stairs",
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              1,
+              1
+            ],
+            [
+              2,
+              1,
+              1
+            ]
+          ],
+          "stayed": true
         }
       ]
     },
@@ -1014,8 +939,7 @@
       "lines": [
         "Reitti: outside tunnels -> upper b, jopa 5 pelaajaa (7/8 kierroksesta, 1/2 ottelussa, ei uusimmassa)",
         "Reitti: long box, jopa 3 pelaajaa (3/8 kierroksesta, 2/2 ottelussa, ei uusimmassa)",
-        "Reitti: top mid, 2 pelaajaa (3/8 kierroksesta, 2/2 ottelussa, ei uusimmassa)",
-        "Reitti: outside tunnels -> upper b -> b site, jopa 2 pelaajaa jää (3/8 kierroksesta, 1/2 ottelussa, ei uusimmassa)"
+        "Reitti: top mid, 2 pelaajaa (3/8 kierroksesta, 2/2 ottelussa, ei uusimmassa)"
       ],
       "patterns": [
         {
@@ -1179,47 +1103,6 @@
           "newest": false,
           "path": [
             [
-              "outside tunnels",
-              null,
-              null,
-              null
-            ],
-            [
-              "upper b",
-              null,
-              null,
-              null
-            ],
-            [
-              "b site",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              2,
-              14,
-              1
-            ],
-            [
-              2,
-              20,
-              2
-            ],
-            [
-              2,
-              22,
-              2
-            ]
-          ],
-          "stayed": true
-        },
-        {
-          "newest": false,
-          "path": [
-            [
               "long box",
               null,
               null,
@@ -1277,10 +1160,52 @@
             [
               2,
               22,
-              3
+              4
             ]
           ],
           "stayed": false
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "outside tunnels",
+              null,
+              null,
+              null
+            ],
+            [
+              "upper b",
+              null,
+              null,
+              null
+            ],
+            [
+              "b site",
+              null,
+              null,
+              null
+            ],
+            [
+              "big box",
+              "inferred",
+              "b site",
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              2,
+              20,
+              1
+            ],
+            [
+              2,
+              22,
+              1
+            ]
+          ],
+          "stayed": true
         },
         {
           "newest": false,
@@ -8453,6 +8378,6 @@
       "patterns": []
     }
   },
-  "measured": "2026-09-29",
+  "measured": "2026-10-01",
   "note": "Every recorded team's pistol, eco, force, half-buy and default block: the route-pattern lines the report prints and every recurring path report.json holds (Stories 4.14, 4.19 and 4.22). A round is [demo place in the map's newest-first list, round number, players]. Written by running tests/test_calibration.py's _pattern_blocks_from over the archive; re-measure, do not hand-edit."
 }

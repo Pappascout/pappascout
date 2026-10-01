@@ -383,6 +383,15 @@ _PART_SPLITS = {
     "de_nuke.Ramp": ("Ramp",),
     "de_nuke.Tunnels": ("Tunnels",),
     "de_nuke.Observation": ("Observation",),
+    # Story 4.26: Dust2's sites and what lies around them, each a table of
+    # its own on UnderA's grid (dust2-taulukot-2026-10-01.md section 5).
+    **{
+        f"de_dust2.{area}": (area,)
+        for area in (
+            "BombsiteA", "ARamp", "ExtendedA", "LongA", "BombsiteB", "BDoors",
+            "MidDoors",
+        )
+    },
 }
 
 
@@ -486,7 +495,8 @@ def test_the_three_inferno_splits_read_one_table() -> None:
 
 @pytest.mark.parametrize(
     ("map_name", "area"),
-    [(m, a) for m, areas in _NEW_SPLITS.items() for a in areas],
+    [(m, a) for m, areas in _NEW_SPLITS.items() for a in areas]
+    + [tuple(key.split(".")) for key in _PART_SPLITS if key.startswith("de_dust2.")],
 )
 def test_the_new_grids_are_grid2s_and_cover_the_image(map_name: str, area: str) -> None:
     """As Ancient's (Story 4.18): origin (0, 0), one cell of 425 game units
@@ -541,6 +551,10 @@ _MERGES = {
     "de_dust2": {
         "a site": "BombsiteA", "ramp": "ARamp", "ct spawn": "CTSpawn",
         "short stairs": "ShortStairs", "short a": "ExtendedA",
+        # Story 4.26: his ikkuna and B ovet, on the B side's splits.
+        "window": "Hole", "b doors": "BDoors",
+        # Review round 1 (item 18): long below ct cross on UnderA's split.
+        "long a": "LongA",
     },
 }
 
@@ -551,8 +565,9 @@ def test_the_merged_parts_are_exactly_the_places_named_so(map_name: str) -> None
     by_callout = {e.callout: a for a, e in table.items() if e.callout}
     parts = {
         p.callout: p
-        for area in _NEW_SPLITS[map_name]
-        for p in table[area].split.parts
+        for entry in table.values()
+        if entry.split is not None
+        for p in entry.split.parts
     }
     merged = {c: by_callout[c] for c in parts if c in by_callout}
     assert merged == _MERGES[map_name]
@@ -837,6 +852,13 @@ def test_every_new_parts_junction_follows_its_stated_basis(key: str) -> None:
     parts = {p.callout: p for p in table[_PART_SPLITS[key][0]].split.parts}
     for callout, part in parts.items():
         basis = _stated_basis(part)
+        his = _his_junction().match(basis)
+        if his:
+            # Story 4.26 (the header's HIS WORD FIRST): his own quoted words
+            # make the part a junction, and they are its junction_source.
+            assert part.junction, callout
+            assert f"his words: '{his[1]}'" in (part.junction_source or ""), callout
+            continue
         if basis.startswith("inside "):
             other = re.match(r"inside (.+?), whose basis it shares", basis)[1]
             expected = parts[other].junction
@@ -847,9 +869,41 @@ def test_every_new_parts_junction_follows_its_stated_basis(key: str) -> None:
             (expected,) = flags
         else:
             area = re.search(r"the game's (\w+)|the whole of (\w+)", basis)
+            assert area, (callout, f"a basis of no known form: {basis!r}")
             expected = table[area[1] or area[2]].junction
         assert part.junction == expected, (callout, basis)
         assert (part.junction_source is not None) == part.junction, callout
+
+
+def _his_junction() -> re.Pattern:
+    """A basis his own words decide (the header's HIS WORD FIRST, Story
+    4.26), read from the header the way the carried band is: the form the
+    header writes, with his words quoted where it says <his words>, up to
+    the split areas, which follow the match."""
+    clause = _header_clause(
+        r'HIS WORD FIRST .*? Its basis then reads '
+        r'"([^"<]*)\'<his words>\'([^"<]*)<areas>"'
+    )
+    return re.compile(re.escape(clause[1]) + r"'([^']*)'" + re.escape(clause[2]))
+
+
+#: The parts his own words make a junction (Story 4.26, review round 1):
+#: a closed set, so a basis rewritten into the form -- or out of it --
+#: fails by name.
+_HIS_JUNCTIONS = {("de_dust2", "ct cross")}
+
+
+def test_the_parts_his_words_make_junctions_are_a_closed_set() -> None:
+    found = set()
+    for map_name, table in _table().items():
+        for entry in table.values():
+            for part in entry.split.parts if entry.split else []:
+                # A part with no basis (Nuke's yard, Story 4.17) has no
+                # his-word one either.
+                match = _BASIS.search(part.source)
+                if match and _his_junction().match(match[1]):
+                    found.add((map_name, part.callout))
+    assert found == _HIS_JUNCTIONS
 
 
 # -- The bands, re-derived on the archive ------------------------------------
@@ -997,6 +1051,17 @@ _BANDED = {
     "de_nuke.Ramp": set(),
     "de_nuke.Tunnels": set(),
     "de_nuke.Observation": set(),
+    # Story 4.26: short a's three bands are the same place's on BombsiteA's
+    # split; no other place of the Dust2 sites passes the rule with two
+    # names (dust2-taulukot-2026-10-01.md section 3).
+    "de_dust2.BombsiteA": {("short a", "G3b"), ("short a", "G3d"), ("short a", "H3b")},
+    "de_dust2.ARamp": set(),
+    "de_dust2.ExtendedA": set(),
+    "de_dust2.LongA": set(),
+    # Review round 1 (A3): the window, whole C2b and C2d above its edge.
+    "de_dust2.BombsiteB": {("window", "C2b"), ("window", "C2d")},
+    "de_dust2.BDoors": {("window", "C2b"), ("window", "C2d")},
+    "de_dust2.MidDoors": set(),
 }
 
 
@@ -1155,6 +1220,10 @@ def test_every_height_band_passes_the_band_rule_at_its_largest_gap(
 
 #: The places he names by height that the rule refuses a band, each with the
 #: part whose source says so: (map, the part, half-cells, a y range of them).
+#: With no half-cells given, the place is the part's own claim, its cells and
+#: its regions. An entry on fewer than 10 ticks is LATENT UNTIL THE ARCHIVE
+#: GROWS: a level needs 5, so it can hardly pass, and the test is a guard
+#: for the day it might.
 _ONE_LEVEL = {
     "balcony": ("de_inferno", "balcony", None, None),
     "H5d (ct boost's gap)": ("de_inferno", "ct boost", ["H5d"], (0.0, 1.0)),
@@ -1166,6 +1235,20 @@ _ONE_LEVEL = {
     # the ring's edge is checked where carried bands are, in
     # test_every_height_band_passes_the_band_rule_at_its_largest_gap.)
     "the vent's knee height": ("de_nuke.Tunnels", "vent", None, None),
+    # Story 4.26: the Dust2 boxes he names by height, and the scaffold
+    # against the slope (dust2-taulukot-2026-10-01.md section 3).
+    "double stack's two boxes": (  # 5 ticks: latent until the archive grows
+        "de_dust2.BombsiteB", "double stack", None, None
+    ),
+    "big box's top": ("de_dust2.BombsiteB", "big box", None, None),
+    "the B car's roof": ("de_dust2.BombsiteB", "b auto", None, None),
+    "b boost's two boxes": (  # 8 ticks: latent until the archive grows
+        "de_dust2.BombsiteB", "b boost", None, None
+    ),
+    "raksatelineet over b slope": ("de_dust2.BDoors", "raksatelineet", None, None),
+    # Review round 1 (A5): goose's floor against the stairs and the site.
+    "goose in I2b": ("de_dust2.BombsiteA", "goose", ["I2b"], (0.0, 1.0)),
+    "goose in I2a": ("de_dust2.BombsiteA", "goose", ["I2a"], (0.0, 1.0)),
 }
 
 
@@ -1179,7 +1262,9 @@ def test_every_place_built_without_a_band_fails_the_band_rule(place: str) -> Non
     split = _table()[_map_of(key)][_PART_SPLITS[key][0]].split
     part = next(p for p in split.parts if p.callout == callout)
     if cells is None:
-        rects = [split._region_rect(part, r) for r in part.regions]
+        rects = [_half_cell(split, c) for c in part.cells] + [
+            split._region_rect(part, r) for r in part.regions
+        ]
     else:
         rects = [_half_cell(split, c, y) for c in cells]
     ticks = _on_floor(_live_ticks(require_parsed(), _map_of(key)), split)
@@ -1201,12 +1286,14 @@ def test_every_stated_junction_basis_is_what_the_archive_shows(key: str) -> None
     split = table[_PART_SPLITS[key][0]].split
     ticks = _on_floor(_live_ticks(root, _map_of(key)), split)
     holds: dict[str, set] = {}
+    taken: dict[tuple[str, str], int] = {}
     for area in _PART_SPLITS[key]:
         area_split = table[area].split
         for x, y, z in ticks.filter(pl.col("area") == area).select("x", "y", "z").iter_rows():
             part = area_split.part_at(x, y, z)
             if part is not None:  # the rest of a lobby-like area (Story 4.23)
                 holds.setdefault(part.callout, set()).add(area)
+                taken[(part.callout, area)] = taken.get((part.callout, area), 0) + 1
     lies: dict[str, dict] = {}
     px = ticks["x"].to_numpy() * split.fit.sx + split.fit.bx
     py = -ticks["y"].to_numpy() * split.fit.sy + split.fit.by
@@ -1222,6 +1309,16 @@ def test_every_stated_junction_basis_is_what_the_archive_shows(key: str) -> None
     for part in split.parts:
         basis = _stated_basis(part)
         held = holds.get(part.callout, set())
+        his = _his_junction().match(basis)
+        if his:
+            # His word decides the flag; what it holds is still the archive's.
+            basis = "holds positions of " + basis[his.end():]
+        # Story 4.26 (review round 1): every "takes N <Area> positions" a
+        # source states about this split's own area is the lookup's count.
+        for n, area in re.findall(r"\btakes (\d+) (\w+) positions?\b", part.source):
+            if area in _PART_SPLITS[key]:
+                found = taken.get((part.callout, area), 0)
+                assert found == int(n), (part.callout, area, found)
         if basis.startswith("holds positions of "):
             areas = set(re.match(r"holds positions of ([A-Za-z, ]+)", basis)[1].split(", "))
             assert held == areas, (part.callout, held)
@@ -1237,3 +1334,30 @@ def test_every_stated_junction_basis_is_what_the_archive_shows(key: str) -> None
             else:
                 assert "no live tick of the map lies in it" in basis, part.callout
                 assert not counts, part.callout
+
+
+@pytest.mark.archive
+def test_the_a_cars_roof_passes_the_rule_and_carries_no_band_by_decision() -> None:
+    """Story 4.26, the lead's decision #12: the band rule passes on his A car
+    -- J3d, J4b and J4d's top quarter -- but the roof and the ground beside
+    it are both his auto, so no band is built. The edge the source states is
+    re-derived here, so the claim cannot outlive the archive."""
+    split = _table()["de_dust2"]["LongA"].split
+    auto = next(p for p in split.parts if p.callout == "a auto")
+    assert all(r.z is None for r in auto.regions)
+    rects = [_half_cell(split, c) for c in auto.cells] + [
+        split._region_rect(auto, r) for r in auto.regions
+    ]
+    ticks = _on_floor(_live_ticks(require_parsed(), "de_dust2"), split)
+    passes, cuts, levels = _levels(_in_rects(ticks, split, rects)["z"])
+    assert passes and [round(mid, 2) for _, _, mid in cuts] == [22.33]
+    assert [len(level) for level in levels] == [24, 5]
+    assert "edge 22.33" in auto.source and "no band is built" in auto.source
+    # The measurement the source writes out, re-derived (review round 1).
+    ((low, high, _),) = cuts
+    stated = (
+        f"({len(levels[0])} ticks at z {min(levels[0]):.0f}..{max(levels[0]):.0f}, "
+        f"{len(levels[1])} at {min(levels[1]):.0f}..{max(levels[1]):.0f}, the largest "
+        f"gap {high - low:.2f} from {low:.2f} to {high:.2f}"
+    )
+    assert stated in auto.source, stated

@@ -5,11 +5,10 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 2 b doors",
-          "    - 1 b site ⇄ b doors -> mid doors -> ct spawn -> ct ramppi -> kuoli ct ramppi (36 s)",
-          "    - 1 b site -> window -> mid doors -> ct spawn",
+          "  - 1 b slope (päätelty) -> b doors -> b site -> b slope (päätelty) -> mid doors -> ct spawn -> ct ramppi -> kuoli ct ramppi (36 s)",
           "  - 1 fast cat -> short stairs -> kuoli short stairs (29 s)",
           "  - 1 mid -> tunnelin portaat ⇄ mid -> catwalk -> short a",
+          "  - 1 raksatelineet -> b site -> alttari ⇄ b site -> window -> mid doors -> ct spawn",
           "  - 1 short a -> short stairs -> catwalk -> kuoli catwalk (26 s)"
         ],
         "won": false
@@ -31,10 +30,12 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 2 fast cat -> short stairs -> catwalk ⇄ short stairs -> short a -> 1 short a, 1 kuoli short a (45 s)",
-          "  - 1 b doors -> b site ⇄ b doors -> mid doors -> ct spawn",
-          "  - 1 mid doors -> b doors ⇄ mid doors -> ct spawn -> ct ramppi",
-          "  - 1 short a -> short stairs -> catwalk ⇄ short stairs -> short a"
+          "  - 2 fast cat -> short stairs -> catwalk ⇄ short stairs",
+          "    - 1 gandalf -> kuoli gandalf (45 s)",
+          "    - 1 short a",
+          "  - 1 b slope (päätelty) -> b site -> raksatelineet -> mid doors -> ct spawn",
+          "  - 1 mid doors -> b slope (päätelty) -> b doors ⇄ b slope (päätelty) -> mid doors -> ct spawn -> ct ramppi",
+          "  - 1 short a -> short stairs -> catwalk ⇄ short stairs"
         ],
         "won": false
       }
@@ -46,7 +47,7 @@
         "rows": [
           "  - 4 outside long -> top mid",
           "    - 3 catwalk -> 1 kuoli catwalk (12 s), 1 kuoli catwalk (14 s), 1 kuoli catwalk (18 s)",
-          "    - 1 mid -> catwalk -> short stairs -> kuoli short a (23 s)",
+          "    - 1 mid -> catwalk -> short stairs -> kuoli short stairs (23 s)",
           "  - 1 t spawn -> top mid -> catwalk -> short stairs"
         ],
         "won": false
@@ -457,6 +458,6 @@
     ]
   },
   "limit": "A row is a string, so this catches the model and the renderer together and cannot say which of the two moved. It cannot be re-derived without the archive: the tests that read it without one assert on its own contents, which is a different job. The rows are read on the grid settings.toml declares, because _on_grid filters one demo of this archive down to it permanently -- so the table is the report on THAT grid and not on whatever grid a demo happens to be parsed at. It is an observation and not a rule: importing a demo changes these rows legitimately, and the answer is then to measure the table again and say so in the commit.",
-  "measured": "2026-09-29",
+  "measured": "2026-10-01",
   "note": "EVERY pistol block of every recorded team, keyed team/map/side/pistol, with the route rows as the view renders them from the real archive (Stories 4.11 and 4.13). Produced by running tests/test_calibration._route_blocks_from over the archive -- the same code path the test that reads it back uses -- so the file records what the tool produces and not a hand-written expectation. Since Story 4.13 the route reads every sample point, compresses each player's path to the product owner's junctions and speaks his callouts (src/pappascout/callouts.toml). The rows carry callouts, player counts and measured seconds only: the block's heading, which names the opponent and the date, is DELIBERATELY NOT HERE -- the repository is public and the denylist that guards it lives outside the repository (AD-12). What the heading states is pinned without the names in match_counts.json's played table."
 }

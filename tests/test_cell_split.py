@@ -955,6 +955,40 @@ _WHOLE = (0.0, 1.0)
 #: half by half corner (his own corner size, "puolet korkeudesta ja
 #: leveydestä").
 _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
+    # Story 4.26, his Dust2 site answer (vastaus-dust2-sitet-2026-10-01.md).
+    # Two half-cells that share an edge meet at no corner, so his "risteys"
+    # of two is the edge: a quarter (EDGE) on each side of it. The I2b side
+    # first, because its words contain J2a's. "noin puolessa välissä" (about
+    # halfway) is the middle half of the height, EDGE either side of 1/2.
+    (
+        "i2b ja j2a välisessä risteyksessä noin puolessa välissä",
+        ((1 - EDGE, 1.0), (0.5 - EDGE, 0.5 + EDGE)),
+    ),
+    (
+        "j2a välisessä risteyksessä noin puolessa välissä",
+        ((0.0, EDGE), (0.5 - EDGE, 0.5 + EDGE)),
+    ),
+    # His own quarter.
+    ("vasemman reunan neljännes", ((0.0, 0.25), _WHOLE)),
+    # A corner he did not quantify: half by half (the size rule).
+    ("oikeassa alanurkassa", ((0.5, 1.0), (0.5, 1.0))),
+    # "hieman J4d" (a little of J4d): its top quarter, where the car runs
+    # on from J4b (the lead's decision #11, inferred).
+    ("ja hieman j4d", (_WHOLE, (0.0, EDGE))),
+    # His answers to the eight questions, same day: "yläreinat" (top edges)
+    # is his own "ylin neljännes", the top quarter; "alin neljännes" his
+    # bottom quarter; and long's "alaosat poislukien ylin neljännes" (the
+    # lower parts but the top quarter) what ct cross's top quarter leaves.
+    ("alaosat poislukien ylin neljännes", (_WHOLE, (0.25, 1.0))),
+    ("yläreinat", (_WHOLE, (0.0, 0.25))),
+    ("alin neljännes", (_WHOLE, (0.75, 1.0))),
+    # Review round 1 (the lead's A5): goose's floor reaches I2b
+    # ("Ulottuu"), read as I2b but its left quarter (the size rule's edge),
+    # where the site floor lies -- the lead's region, so goose is inferred.
+    ("ulottuu", ((EDGE, 1.0), _WHOLE)),
+    # (A6): b slope runs "kunnes se tasaantuu Mid ovien kohdilla", until it
+    # flattens at mid doors -- D3d but its right quarter, already flat.
+    ("kunnes se tasaantuu mid ovien kohdilla noin", ((0.0, 1 - EDGE), _WHOLE)),
     # Story 4.25, his B site answers of 2026-09-30 (vastaus-bsite-2-2026-09-
     # 30.md). His "rivi 7 yläreunasta noin pixeli tai reilu", about a pixel or
     # a little more from row 7's top edge, read as the top tenth (the lead's
@@ -1131,7 +1165,8 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
         named = set(_free_cells(_read(region.words, readings)))
         if region.crossing is not None:
             assert set(region.crossing) <= named, region.words
-            assert "risteys" in region.words, region.words
+            # His "risteys", inflected too ("risteyksessä", Story 4.26).
+            assert re.search("risteys|risteyks", region.words), region.words
             if "yhden ruudun kokoinen" in region.words:
                 assert region.size == 1.0, region.words
         else:
@@ -1150,7 +1185,8 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
             assert re.search(
                 r"Height band measured, not guessed \([^)]*"
                 r"(?:zbands-mitattu-2026-09-28|nuke-lobby-z-mitattu-2026-09-29"
-                r"|bsite-taulukot-2026-09-29|spec-4-25-b-site-confirmed)"
+                r"|bsite-taulukot-2026-09-29|spec-4-25-b-site-confirmed"
+                r"|dust2-taulukot-2026-10-01)"
                 r"\.md",
                 part.source,
             ), part.callout
@@ -1850,8 +1886,14 @@ def test_one_place_on_one_floor_is_one_region() -> None:
                     twin = theirs.get(part.callout)
                     if twin is None:
                         continue
-                    assert (part.cells, part.regions, part.boxes, part.junction) == (
-                        twin.cells, twin.regions, twin.boxes, twin.junction
+                    # Story 4.26 (review round 1): and one confidence, so a
+                    # twin cannot print marked on one split only.
+                    assert (
+                        part.cells, part.regions, part.boxes, part.junction,
+                        part.confidence,
+                    ) == (
+                        twin.cells, twin.regions, twin.boxes, twin.junction,
+                        twin.confidence,
                     ), (map_name, one, two, part.callout)
                     checked |= {
                         (map_name, one, part.callout),
@@ -1886,3 +1928,227 @@ def test_every_fraction_word_decides_a_region() -> None:
                     if term is not None:
                         used.add(term)
     assert [t for t, _ in _FRACTION_WORDS if t not in used] == []
+
+
+# -- Story 4.26: Dust2's sites -------------------------------------------------
+
+
+def _dust2() -> dict:
+    return load_callouts(_POOL)["de_dust2"]
+
+
+def _named_at(split: CellSplit, half_cell: str, fx: float, fy: float, z: float = 100.0):
+    """The callout a position gets at the fraction (fx, fy) of a half-cell,
+    from its left and top, read by the test's own geometry; ``None`` where
+    the area's own callout keeps it."""
+    x0, y0, x1, y1 = _half_cell_rect(split, half_cell)
+    x, y, _ = _at_pixel(split, x0 + (x1 - x0) * fx, y0 + (y1 - y0) * fy)
+    part = split.part_at(x, y, z)
+    return part.callout if part else None
+
+
+def test_dust2s_site_splits_keep_the_area_for_the_rest_and_name_his_places() -> None:
+    """dust2-taulukot-2026-10-01.md section 5 and the lead's decisions: every
+    new split is the not-coarse form -- the area keeps its own callout for
+    the rest and nothing is inherited -- with his places in lookup order.
+    BDoors is not coarse although it holds three of his places (#13), and
+    CTSpawn is not split, because fast cat there would hold a junction area's
+    positions and a transit area's at once (section 5.8)."""
+    table = _dust2()
+    expected = {
+        "BombsiteA": ("a site", ["goose", "short a", "ramp"]),
+        "ARamp": ("ramp", ["hiekkasäkit"]),
+        "ExtendedA": ("short a", ["gandalf", "ninja", "fast cat", "short stairs"]),
+        "LongA": ("long a", ["a auto", "ct cross", "ramp"]),
+        "BombsiteB": ("b site", [
+            "window", "double stack", "big box", "alttari", "b boost", "b auto",
+            "dog", "toka kulma", "b doors",
+        ]),
+        "BDoors": ("b doors", ["window", "raksatelineet", "b slope"]),
+        "MidDoors": ("mid doors", ["raksatelineet", "b slope"]),
+    }
+    for area, (callout, parts) in expected.items():
+        entry = table[area]
+        assert (entry.callout, entry.coarse) == (callout, False), area
+        assert [p.callout for p in entry.split.parts] == parts, area
+        assert entry.split.inherited == {}, area
+    assert {a for a, e in table.items() if e.split is not None} == {
+        *expected, "UnderA"
+    }
+
+
+def test_hiekkasakit_straddles_its_edge_and_the_window_is_its_height() -> None:
+    """hiekkasäkit ("I2b ja J2a välisessä risteyksessä noin puolessa
+    välissä") lies on the edge I2b and J2a share, a quarter deep on each
+    side and only in the middle half of the edge's height (the header's
+    risteys of two). The window ("C2b,C2d ... korkeammalla kuin ovet") is
+    the two half-cells whole above its measured band, on both splits (the
+    lead's A3 of review round 1), and the ground beneath keeps the area's
+    own name."""
+    table = _dust2()
+    ramp = table["ARamp"].split
+    for cell, fx in (("I2b", 0.8), ("J2a", 0.2)):
+        assert _named_at(ramp, cell, fx, 0.5) == "hiekkasäkit", cell
+        for fy in (0.2, 0.8):
+            assert _named_at(ramp, cell, fx, fy) is None, (cell, fy)
+    assert _named_at(ramp, "I2b", 0.7, 0.5) is None
+    assert _named_at(ramp, "J2a", 0.3, 0.5) is None
+    for area in ("BombsiteB", "BDoors"):
+        split = table[area].split
+        window = next(p for p in split.parts if p.callout == "window")
+        (edge,) = {r.z[0] for r in window.regions}
+        assert window.confidence == "stated", area
+        for cell in ("C2b", "C2d"):
+            for fx, fy in ((0.1, 0.1), (0.5, 0.5), (0.9, 0.9)):
+                assert _named_at(split, cell, fx, fy, edge) == "window", (area, cell)
+                assert _named_at(split, cell, fx, fy, edge - 0.01) is None, (area, cell)
+
+
+def test_d2c_is_raksatelineet_and_b_slope_runs_to_the_flat_at_mid_doors() -> None:
+    """The lead's decision #18: D2c is his raksatelineet and his b slope,
+    the band rule cannot tell them apart, so raksatelineet comes first and b
+    slope yields D2c to it. His answer 5 ("kaikki kohdat joissa z arvo
+    vaihtelee kunnes se tasaantuu Mid ovien kohdilla noin") runs the slope
+    through the D column -- D3a, D3c, D2d, D3b, D3d -- on BDoors's split and
+    MidDoors's alike; the flat at the E column, and his B ovet in C3b and
+    C3d, keep the area's own name."""
+    table = _dust2()
+    split = table["BDoors"].split
+    for z in (0.0, 139.0):
+        assert _named_at(split, "D2c", 0.5, 0.5, z) == "raksatelineet", z
+    assert _named_at(split, "D2a", 0.5, 0.5) == "raksatelineet"
+    for area in ("BDoors", "MidDoors"):
+        for cell in ("D3a", "D3c", "D2d", "D3b", "D3d"):
+            found = _named_at(table[area].split, cell, 0.5, 0.5)
+            assert found == "b slope", (area, cell)
+        # D3d's right quarter is already the flat (review round 1, A6).
+        assert _named_at(table[area].split, "D3d", 0.9, 0.5) is None, area
+        for cell in ("E3a", "E3b", "E3c", "E2c"):
+            assert _named_at(table[area].split, cell, 0.5, 0.5) is None, (area, cell)
+        # D2c is raksatelineet on both splits, the slope's level included.
+        for z in (0.0, 139.0):
+            found = _named_at(table[area].split, "D2c", 0.5, 0.5, z)
+            assert found == "raksatelineet", (area, z)
+    for cell in ("C3b", "C3d"):
+        assert _named_at(split, cell, 0.5, 0.5) is None, cell
+    assert next(p for p in split.parts if p.callout == "b slope").broad
+
+
+def test_the_two_cars_are_two_places() -> None:
+    """Decision 4 and his answer 6 ("Käytä a auto ja b auto"): his A car is
+    a auto (LongA's split and UnderA's, one region) and his B car b auto,
+    both his names; b auto adds C4a's bottom quarter (his answer 7) and is
+    stated, a auto keeps the inferred reading of "hieman J4d" (#11)."""
+    table = _dust2()
+    cars = {
+        (area, p.callout): p
+        for area, entry in table.items() if entry.split is not None
+        for p in entry.split.parts if "auto" in p.callout
+    }
+    assert set(cars) == {
+        ("UnderA", "a auto"), ("LongA", "a auto"), ("BombsiteB", "b auto")
+    }
+    b_auto = cars[("BombsiteB", "b auto")]
+    assert b_auto.confidence == "stated"
+    assert "'Käytä a auto ja b auto'" in b_auto.source
+    bsite = table["BombsiteB"].split
+    assert _named_at(bsite, "C4a", 0.5, 0.9) == "b auto"
+    assert _named_at(bsite, "C4a", 0.5, 0.7) is None
+    a_car = cars[("LongA", "a auto")]
+    assert a_car.confidence == "inferred"  # "hieman J4d", decision #11
+    assert {r.cell for r in a_car.regions} == {"J4d"}
+    assert _named_at(table["LongA"].split, "J4d", 0.5, 0.2) == "a auto"
+    assert _named_at(table["LongA"].split, "J4d", 0.5, 0.3) is None
+
+
+def test_his_eight_answers_on_the_a_side_and_the_boxes() -> None:
+    """His answers to the eight questions (vastaus-dust2-sitet-2026-10-01.md,
+    last section): goose reaches I2b ("Ulottuu") -- I2b but its left
+    quarter, where the site floor lies (the lead's A5 of review round 1);
+    I2d's right third is ramp ("ramppia"); the ramp starts
+    at J3a's level on LongA, and ct cross is I3d, J3c and the top quarters
+    of I4b and J4a ("yläreinat"); big box is a corner-sized box on its
+    crossing, and his hiding corners behind it stay b site (A1); the tunnel's
+    boxes are b boost, a corner-sized box on their crossing. Below ct cross,
+    the rest of I4b and J4a is long a on UnderA's split too (item 18)."""
+    table = _dust2()
+    for area in ("UnderA", "BombsiteA"):
+        goose = next(p for p in table[area].split.parts if p.callout == "goose")
+        assert goose.cells == ["I1c", "I1d"], area
+        assert [(r.cell, r.x, r.y) for r in goose.regions] == [
+            ("I2b", (0.25, 1.0), (0.0, 1.0))
+        ], area
+        assert goose.confidence == "inferred", area
+        assert "KNOWN LIMIT, I2a:" in goose.source
+    site = table["BombsiteA"].split
+    assert _named_at(site, "I2b", 0.5, 0.5, 96.0) == "goose"
+    assert _named_at(site, "I2b", 0.1, 0.8, 96.0) is None
+    assert _named_at(site, "I2a", 0.5, 0.5, 127.0) is None
+    assert _named_at(site, "I2d", 0.9, 0.5) == "ramp"
+    longa = table["LongA"].split
+    for cell in ("J3a", "J3b"):
+        assert _named_at(longa, cell, 0.5, 0.5) == "ramp", cell
+    under = table["UnderA"].split
+    cross = next(p for p in under.parts if p.callout == "ct cross")
+    assert cross.cells == ["I3d", "J3c"]
+    assert {(r.cell, r.y) for r in cross.regions} == {
+        ("I4b", (0.0, 0.25)), ("J4a", (0.0, 0.25))
+    }
+    for cell in ("I3d", "J3c"):
+        assert _named_at(under, cell, 0.5, 0.5) == "ct cross", cell
+    for cell in ("I4b", "J4a"):
+        assert _named_at(under, cell, 0.5, 0.2) == "ct cross", cell
+        assert _named_at(longa, cell, 0.5, 0.2) == "ct cross", cell
+        assert _named_at(longa, cell, 0.5, 0.3) is None, cell
+        assert _named_at(under, cell, 0.5, 0.3) == "long a", cell
+    # His ct cross answer: a choice point, a junction on both splits, on his
+    # word, although UnderA is transit.
+    assert not table["UnderA"].junction and table["LongA"].junction
+    for area in ("UnderA", "LongA"):
+        cross = next(p for p in table[area].split.parts if p.callout == "ct cross")
+        assert cross.junction and "'ct cross voisi olla valintapaikka" in (
+            cross.junction_source
+        ), area
+    bsite = table["BombsiteB"].split
+    for cell, fx, fy in (
+        ("B3a", 0.9, 0.1), ("B3b", 0.1, 0.1), ("B2c", 0.9, 0.9), ("B2d", 0.1, 0.9)
+    ):
+        assert _named_at(bsite, cell, fx, fy) == "big box", cell
+    for cell, fx, fy in (
+        ("B3a", 0.6, 0.4), ("B3b", 0.4, 0.4), ("B2c", 0.7, 0.7), ("B2d", 0.4, 0.9)
+    ):
+        assert _named_at(bsite, cell, fx, fy) is None, cell
+    big = next(p for p in bsite.parts if p.callout == "big box")
+    boost = next(p for p in bsite.parts if p.callout == "b boost")
+    for part in (big, boost):
+        (crossing,) = [r for r in part.regions if r.crossing]
+        assert crossing.size == 0.5 and part.confidence == "inferred", part.callout
+    assert _named_at(bsite, "B4a", 0.9, 0.9) == "b boost"
+    assert _named_at(bsite, "B4d", 0.1, 0.1) == "b boost"
+    assert _named_at(bsite, "B4d", 0.5, 0.5) == "b auto"
+
+
+#: Every Dust2 part's confidence (Story 4.26, review round 1, D14): the
+#: header's rule -- a reading of ours that moves a counted position is
+#: inferred -- applied part by part in dust2-taulukot-2026-10-01.md and the
+#: lead's decisions, pinned here so a confidence flipped in the table fails
+#: by name. Twins on one floor share it (one place, one region).
+_DUST2_CONFIDENCE = {
+    "inferred": {
+        "goose", "a auto", "hiekkasäkit", "big box", "b boost", "b slope",
+    },
+    "stated": {
+        "short a", "elevator", "short stairs", "ct spawn", "fast cat", "ct ramppi",
+        "ct cross", "long a", "ramp", "a site", "gandalf", "ninja", "window",
+        "double stack", "alttari", "b auto", "dog", "toka kulma", "b doors",
+        "raksatelineet",
+    },
+}
+
+
+def test_every_dust2_part_carries_the_confidence_its_reading_earns() -> None:
+    found = {}
+    for area, entry in _dust2().items():
+        for part in entry.split.parts if entry.split else []:
+            found.setdefault(part.confidence, set()).add(part.callout)
+    assert found == _DUST2_CONFIDENCE
