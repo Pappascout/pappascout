@@ -911,6 +911,10 @@ _READ_AS = re.compile(
 #: to a Finnish ending (*E8b:hen*, *G11dja*), with his range form *F9a-d*.
 #: Story 4.24: a half-cell his words name, left out as a known limit.
 _KNOWN_LIMIT = re.compile(r"KNOWN LIMIT, ([A-P][0-9]+[a-d]):")
+#: Story 4.26: a half-cell his words name only to say the place is not
+#: there ("Big box ei ole ollenkaan B2d:n ruudussa") -- a negation of his,
+#: not a limit of the table.
+_NOT_HIS = re.compile(r"NOT HIS, ([A-P][0-9]+[a-d]):")
 #: Story 4.24: a region the lead reads from his words that name no
 #: half-cell for it, with those words: "the lead's region C6d from '...'".
 _LEAD_REGION = re.compile(r"the lead's region ([A-P][0-9]+[a-d]) from '([^']*)'")
@@ -968,6 +972,10 @@ _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
         "j2a välisessä risteyksessä noin puolessa välissä",
         ((0.0, EDGE), (0.5 - EDGE, 0.5 + EDGE)),
     ),
+    # Big box "osuu juuri B3a ja B3b välille", the size of a corner ("puolet
+    # leveydestä puolet korkeudesta"): B3b's corner beside B3a, the top-left,
+    # where the box top lies (the lead's review of the 4.26 follow-up).
+    ("osuu juuri b3a ja b3b välille", ((0.0, 0.5), (0.0, 0.5))),
     # His own quarter.
     ("vasemman reunan neljännes", ((0.0, 0.25), _WHOLE)),
     # A corner he did not quantify: half by half (the size rule).
@@ -1130,7 +1138,8 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
     fifth is written once in :data:`_FRACTION_WORDS` and again as the
     region's ``x`` / ``y`` in ``callouts.toml`` (only the lead's EDGE is read
     from one place, the header), so a size copied identically wrong into
-    both passes here.
+    both passes here. So do the sub-counts a source writes in prose (z
+    ranges, "5 live ticks in B3a"), and a misquote copied into both.
     """
     quotes = _HIS_WORDS.findall(part.source)
     assert quotes, part.callout
@@ -1144,7 +1153,10 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
     # Story 4.24: a half-cell his words name that is left out as a known
     # limit (the band rule refuses it) is not read away: the source says
     # 'KNOWN LIMIT, <half-cell>:', and the part does not hold it.
-    left_out = set(_KNOWN_LIMIT.findall(part.source))
+    limits = set(_KNOWN_LIMIT.findall(part.source))
+    negated = set(_NOT_HIS.findall(part.source))
+    assert not limits & negated, (part.callout, limits & negated)
+    left_out = limits | negated
     assert left_out <= written_cells, (part.callout, left_out)
     # And a region his words give no half-cell for is the lead's, quoted
     # with the words it rests on, and makes the part inferred.
@@ -2067,8 +2079,9 @@ def test_his_eight_answers_on_the_a_side_and_the_boxes() -> None:
     quarter, where the site floor lies (the lead's A5 of review round 1);
     I2d's right third is ramp ("ramppia"); the ramp starts
     at J3a's level on LongA, and ct cross is I3d, J3c and the top quarters
-    of I4b and J4a ("yläreinat"); big box is a corner-sized box on its
-    crossing, and his hiding corners behind it stay b site (A1); the tunnel's
+    of I4b and J4a ("yläreinat"); big box is the B3 half of a corner-sized
+    box on its crossing -- "Big box ei ole ollenkaan B2d:n ruudussa" -- and
+    his hiding corners behind it stay b site (A1); the tunnel's
     boxes are b boost, a corner-sized box on their crossing. Below ct cross,
     the rest of I4b and J4a is long a on UnderA's split too (item 18)."""
     table = _dust2()
@@ -2110,19 +2123,24 @@ def test_his_eight_answers_on_the_a_side_and_the_boxes() -> None:
             cross.junction_source
         ), area
     bsite = table["BombsiteB"].split
+    # Big box is B3b's top-left corner; its edges at x = 0.5 and y = 0.5.
+    for fx, fy in ((0.1, 0.1), (0.49, 0.1), (0.1, 0.49), (0.49, 0.49)):
+        assert _named_at(bsite, "B3b", fx, fy) == "big box", (fx, fy)
     for cell, fx, fy in (
-        ("B3a", 0.9, 0.1), ("B3b", 0.1, 0.1), ("B2c", 0.9, 0.9), ("B2d", 0.1, 0.9)
-    ):
-        assert _named_at(bsite, cell, fx, fy) == "big box", cell
-    for cell, fx, fy in (
-        ("B3a", 0.6, 0.4), ("B3b", 0.4, 0.4), ("B2c", 0.7, 0.7), ("B2d", 0.4, 0.9)
+        ("B3b", 0.51, 0.1), ("B3b", 0.1, 0.51), ("B3a", 0.85, 0.15),
+        ("B3a", 0.6, 0.4), ("B2c", 0.9, 0.9), ("B2d", 0.1, 0.9), ("B2d", 0.4, 0.9),
     ):
         assert _named_at(bsite, cell, fx, fy) is None, cell
+    # The rail's ticks and the open top-box patch stay b site.
+    for cell, fx, fy, z in (
+        ("B2d", 0.84, 0.27, 133.8), ("C2c", 0.13, 0.35, 133.8), ("B2b", 0.6, 0.6, 66.0)
+    ):
+        assert _named_at(bsite, cell, fx, fy, z) is None, cell
     big = next(p for p in bsite.parts if p.callout == "big box")
+    assert big.confidence == "inferred" and not any(r.crossing for r in big.regions)
     boost = next(p for p in bsite.parts if p.callout == "b boost")
-    for part in (big, boost):
-        (crossing,) = [r for r in part.regions if r.crossing]
-        assert crossing.size == 0.5 and part.confidence == "inferred", part.callout
+    (crossing,) = [r for r in boost.regions if r.crossing]
+    assert crossing.size == 0.5 and boost.confidence == "inferred"
     assert _named_at(bsite, "B4a", 0.9, 0.9) == "b boost"
     assert _named_at(bsite, "B4d", 0.1, 0.1) == "b boost"
     assert _named_at(bsite, "B4d", 0.5, 0.5) == "b auto"

@@ -1240,7 +1240,9 @@ _ONE_LEVEL = {
     "double stack's two boxes": (  # 5 ticks: latent until the archive grows
         "de_dust2.BombsiteB", "double stack", None, None
     ),
-    "big box's top": ("de_dust2.BombsiteB", "big box", None, None),
+    "big box's corner, the box top alone": (  # 4 ticks: latent
+        "de_dust2.BombsiteB", "big box", None, None
+    ),
     "the B car's roof": ("de_dust2.BombsiteB", "b auto", None, None),
     "b boost's two boxes": (  # 8 ticks: latent until the archive grows
         "de_dust2.BombsiteB", "b boost", None, None

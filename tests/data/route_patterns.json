@@ -532,6 +532,42 @@
           "stayed": true
         },
         {
+          "newest": false,
+          "path": [
+            [
+              "b slope",
+              "inferred",
+              null,
+              null
+            ],
+            [
+              "b site",
+              null,
+              "b slope",
+              "inferred"
+            ],
+            [
+              "mid doors",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              3,
+              1
+            ],
+            [
+              2,
+              9,
+              1
+            ]
+          ],
+          "stayed": true
+        },
+        {
           "newest": true,
           "path": [
             [
@@ -1185,11 +1221,47 @@
               null,
               null,
               null
+            ]
+          ],
+          "rounds": [
+            [
+              2,
+              14,
+              1
+            ],
+            [
+              2,
+              22,
+              1
+            ]
+          ],
+          "stayed": true
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "outside tunnels",
+              null,
+              null,
+              null
+            ],
+            [
+              "upper b",
+              null,
+              null,
+              null
+            ],
+            [
+              "b site",
+              null,
+              null,
+              null
             ],
             [
               "big box",
               "inferred",
-              "b site",
+              null,
               null
             ]
           ],
