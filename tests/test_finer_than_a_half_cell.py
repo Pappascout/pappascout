@@ -1,5 +1,5 @@
 """Story 4.20: places finer than a half-cell -- fractions, crossings, height
-bands and nested names -- and the one Inferno table three splits read.
+bands and nested names -- and the one Inferno table five splits read.
 
 The model is checked on small hand-written splits whose answers can be read
 off the text; the shipped table is checked against his answers of
@@ -366,7 +366,8 @@ def test_a_borrowed_part_named_like_the_borrowers_coarse_name_is_refused(
 
 
 _NEW_SPLITS = {
-    "de_inferno": ("Banana", "Apartments", "TopofMid"),
+    # Story 4.28: Inferno's two sites read the one table too.
+    "de_inferno": ("Banana", "Apartments", "TopofMid", "BombsiteB", "BombsiteA"),
     "de_anubis": ("Canal",),
     "de_dust2": ("UnderA",),
 }
@@ -400,6 +401,10 @@ _PART_SPLITS = {
         f"de_ancient.{area}": (area,)
         for area in ("BombsiteB", "TSideLower", "Alley", "SideEntrance")
     },
+    # Story 4.28: Inferno's two transit areas, each a table of its own on
+    # Banana's grid (inferno-taulukot-2026-10-02.md section 5).
+    "de_inferno.Pit": ("Pit",),
+    "de_inferno.Ruins": ("Ruins",),
 }
 
 
@@ -488,17 +493,25 @@ def test_every_carried_band_is_carried_to_his_own_half_cells() -> None:
         ("de_nuke", "Lobby", "hutladder"): {"I11a"},
         # Story 4.25 (review round 1): the ring's band, carried to D6d.
         ("de_nuke", "BombsiteB", "b rafters"): {"D6d"},
+        # Story 4.28 (the lead's decision #5): ykkonen's band, carried to
+        # kakkonen's two corners, on each split that reads the one table.
+        **{
+            ("de_inferno", area, "kakkonen"): {"G6a", "G5c"}
+            for area in ("Banana", "Apartments", "TopofMid", "BombsiteB", "BombsiteA")
+        },
     }
 
 
-def test_the_three_inferno_splits_read_one_table() -> None:
+def test_the_five_inferno_splits_read_one_table() -> None:
     """A13: *"Boilerin kävimme jo apsien kohdalla"* -- one table, written on
-    Banana's split, read by Apartments' and TopofMid's."""
+    Banana's split, read by Apartments' and TopofMid's, and since Story 4.28
+    by both sites' (the lead's decision #1): 36 parts of 2026-09-28 and 16
+    of 2026-10-02."""
     inferno = _table()["de_inferno"]
     banana = inferno["Banana"].split.parts
-    for area in ("Apartments", "TopofMid"):
+    for area in ("Apartments", "TopofMid", "BombsiteB", "BombsiteA"):
         assert inferno[area].split.parts == banana, area
-    assert len(banana) == 36
+    assert len(banana) == 52
 
 
 @pytest.mark.parametrize(
@@ -507,7 +520,7 @@ def test_the_three_inferno_splits_read_one_table() -> None:
     + [
         tuple(key.split("."))
         for key in _PART_SPLITS
-        if key.startswith(("de_dust2.", "de_ancient."))
+        if key.startswith(("de_dust2.", "de_ancient.", "de_inferno."))
     ]
     + [("de_ancient", "CTSpawn")],
 )
@@ -559,6 +572,8 @@ _MERGES = {
         "t ramp": "TRamp", "alamidi": "LowerMid", "balcony": "Balcony",
         "back alley": "BackAlley", "second mid": "SecondMid",
         "underpass": "Underpass",
+        # Story 4.28: his ruins and pit on the sites' table.
+        "ruins": "Ruins", "pit": "Pit",
     },
     "de_anubis": {"bridge": "Bridge", "stairs": "TStairs", "connector": "Connector"},
     "de_dust2": {
@@ -1068,6 +1083,11 @@ _BANDED = {
     "de_inferno": {
         ("short boost", ("I11c", "I11d", "I12a", "I12b")),
         ("bridge", "E11c"), ("bridge", "E12a"),
+        # Story 4.28 (inferno-taulukot-2026-10-02.md section 3): ykkonen's
+        # box top, carried to kakkonen's corners, and the window frames.
+        ("ykkönen", ("G5d", "G6b", "G6a", "G5c")),
+        ("kakkonen", "G6a"), ("kakkonen", "G5c"),
+        ("short boost", "J12a"),
     },
     "de_anubis": {
         ("mid doors window", "F7d"), ("mid doors window", "G7c"),
@@ -1119,6 +1139,8 @@ _BANDED = {
     "de_ancient.TSideLower": set(),
     "de_ancient.Alley": set(),
     "de_ancient.SideEntrance": set(),
+    "de_inferno.Pit": set(),
+    "de_inferno.Ruins": set(),
 }
 
 
@@ -1317,6 +1339,13 @@ _ONE_LEVEL = {
     "the box at the ramp's foot": (
         "de_ancient.BombsiteB", "ramp", ["K9a"], (0.0, 1.0)
     ),
+    # Story 4.28: the Inferno boxes he names by height, the truck and the
+    # fountain's rim (inferno-taulukot-2026-10-02.md section 3).
+    "coffin's top": ("de_inferno", "coffin", None, None),
+    "the fountain's rim": ("de_inferno", "fountain", None, None),
+    "ykkos boksi's top": ("de_inferno", "ykkös boksi", None, None),
+    "coldzera boksi's top": ("de_inferno", "coldzera boksi", None, None),
+    "the truck's top": ("de_inferno", "truck", None, None),
 }
 
 

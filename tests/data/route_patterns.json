@@ -1373,127 +1373,14 @@
       ]
     },
     "1e1965abbc06133b/de_inferno/CT/eco": {
-      "lines": [
-        "Reitti: b site, jopa 3 pelaajaa jää (2/2 kierroksesta)"
-      ],
-      "patterns": [
-        {
-          "newest": true,
-          "path": [
-            [
-              "b site",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              4,
-              3
-            ],
-            [
-              0,
-              6,
-              1
-            ]
-          ],
-          "stayed": true
-        }
-      ]
+      "lines": [],
+      "patterns": []
     },
     "1e1965abbc06133b/de_inferno/CT/full": {
       "lines": [
-        "Reitti: b site, jopa 3 pelaajaa (7/9 kierroksesta)",
-        "Reitti: b site, jopa 2 pelaajaa jää (4/9 kierroksesta)",
-        "Reitti: a site, 2 pelaajaa (3/9 kierroksesta)",
-        "Reitti: b site -> yläbanaani ⇄ b site, jopa 2 pelaajaa jää (3/9 kierroksesta)"
+        "Reitti: a site, 2 pelaajaa (3/9 kierroksesta)"
       ],
       "patterns": [
-        {
-          "newest": true,
-          "path": [
-            [
-              "b site",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              2,
-              3
-            ],
-            [
-              0,
-              3,
-              2
-            ],
-            [
-              0,
-              8,
-              2
-            ],
-            [
-              0,
-              9,
-              2
-            ],
-            [
-              0,
-              10,
-              2
-            ],
-            [
-              0,
-              11,
-              3
-            ],
-            [
-              0,
-              12,
-              2
-            ]
-          ],
-          "stayed": false
-        },
-        {
-          "newest": true,
-          "path": [
-            [
-              "b site",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              2,
-              1
-            ],
-            [
-              0,
-              3,
-              1
-            ],
-            [
-              0,
-              5,
-              2
-            ],
-            [
-              0,
-              11,
-              1
-            ]
-          ],
-          "stayed": true
-        },
         {
           "newest": true,
           "path": [
@@ -1522,71 +1409,6 @@
             ]
           ],
           "stayed": false
-        },
-        {
-          "newest": true,
-          "path": [
-            [
-              "b site",
-              null,
-              null,
-              null
-            ],
-            [
-              "yläbanaani",
-              null,
-              "b site",
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              3,
-              1
-            ],
-            [
-              0,
-              8,
-              2
-            ],
-            [
-              0,
-              10,
-              1
-            ]
-          ],
-          "stayed": true
-        },
-        {
-          "newest": true,
-          "path": [
-            [
-              "a site",
-              null,
-              null,
-              null
-            ],
-            [
-              "quad",
-              "inferred",
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              5,
-              1
-            ],
-            [
-              0,
-              10,
-              1
-            ]
-          ],
-          "stayed": true
         }
       ]
     },
@@ -4965,9 +4787,9 @@
     "9ac92660986558d3/de_inferno/CT/full": {
       "lines": [
         "Reitti: a site, 2 pelaajaa (8/9 kierroksesta)",
-        "Reitti: b site, jopa 2 pelaajaa jää (5/9 kierroksesta)",
-        "Reitti: b site, 2 pelaajaa (4/9 kierroksesta)",
-        "Reitti: a site, 1 pelaaja jää (3/9 kierroksesta)"
+        "Reitti: cross, 2 pelaajaa (4/9 kierroksesta)",
+        "Reitti: a site -> porch ⇄ a site, 1 pelaaja jää (3/9 kierroksesta)",
+        "Reitti: a site -> porch, 2 pelaajaa (3/9 kierroksesta)"
       ],
       "patterns": [
         {
@@ -5028,46 +4850,7 @@
           "newest": true,
           "path": [
             [
-              "b site",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              3,
-              1
-            ],
-            [
-              0,
-              7,
-              2
-            ],
-            [
-              0,
-              8,
-              1
-            ],
-            [
-              0,
-              11,
-              2
-            ],
-            [
-              0,
-              12,
-              1
-            ]
-          ],
-          "stayed": true
-        },
-        {
-          "newest": true,
-          "path": [
-            [
-              "b site",
+              "cross",
               null,
               null,
               null
@@ -5091,40 +4874,11 @@
             ],
             [
               0,
-              9,
+              11,
               2
             ]
           ],
           "stayed": false
-        },
-        {
-          "newest": true,
-          "path": [
-            [
-              "a site",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              3,
-              1
-            ],
-            [
-              0,
-              4,
-              1
-            ],
-            [
-              0,
-              8,
-              1
-            ]
-          ],
-          "stayed": true
         },
         {
           "newest": true,
@@ -5145,7 +4899,12 @@
           "rounds": [
             [
               0,
-              7,
+              4,
+              1
+            ],
+            [
+              0,
+              8,
               1
             ],
             [
@@ -5160,19 +4919,48 @@
           "newest": true,
           "path": [
             [
-              "arch",
+              "a site",
               null,
               null,
               null
             ],
             [
-              "close/brackets",
-              "inferred",
-              "arch",
+              "porch",
+              null,
+              null,
               null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              6,
+              2
             ],
+            [
+              0,
+              7,
+              2
+            ],
+            [
+              0,
+              10,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
             [
               "a site",
+              null,
+              null,
+              null
+            ],
+            [
+              "porch",
               null,
               null,
               null
@@ -5186,7 +4974,7 @@
             ],
             [
               0,
-              12,
+              10,
               1
             ]
           ],

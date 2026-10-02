@@ -990,6 +990,21 @@ _WHOLE = (0.0, 1.0)
 #: half by half corner (his own corner size, "puolet korkeudesta ja
 #: leveydestä").
 _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
+    # Story 4.28, his Inferno site answer (vastaus-inferno-sitet-2026-10-02.md).
+    # The fountain's top halves, in his plural.
+    ("yläpuoliskot", (_WHOLE, (0.0, 0.5))),
+    # The new box "F5c ruudun oikeassa reunassa": the right edge, EDGE wide.
+    ("ruudun oikeassa reunassa", ((1 - EDGE, 1.0), _WHOLE)),
+    # Takanurkka's second corner, read by the lead as a typo of the right
+    # bottom corner (the answer document's note on probable typos).
+    ("iujea alanurkka", ((0.5, 1.0), (0.5, 1.0))),
+    # Longbox: K10a's left edge in the middle ("keskellä"), and its reach
+    # into J10b, the right edge at the same height: EDGE wide, the middle
+    # half (EDGE either side of 1/2) high.
+    ("keskellä vasemmalla", ((0.0, EDGE), (0.5 - EDGE, 0.5 + EDGE))),
+    ("ylttää vielä ruudun j10b puolelle", ((1 - EDGE, 1.0), (0.5 - EDGE, 0.5 + EDGE))),
+    # The podium's G4b corner, as written: the top-left.
+    ("vasemman ylänurkan puolella", ((0.0, 0.5), (0.0, 0.5))),
     # Story 4.27, his Ancient site answer (vastaus-ancient-sitet-2026-10-01.md).
     # "ihan" and "aivan" (very) intensify a corner and do not quantify it, so
     # it is the size rule's half by half (the lead's decision #3).
@@ -1252,7 +1267,8 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
                 r"Height band measured, not guessed \([^)]*"
                 r"(?:zbands-mitattu-2026-09-28|nuke-lobby-z-mitattu-2026-09-29"
                 r"|bsite-taulukot-2026-09-29|spec-4-25-b-site-confirmed"
-                r"|dust2-taulukot-2026-10-01|ancient-taulukot-2026-10-01)"
+                r"|dust2-taulukot-2026-10-01|ancient-taulukot-2026-10-01"
+                r"|inferno-taulukot-2026-10-02)"
                 r"\.md",
                 part.source,
             ), part.callout
@@ -2396,9 +2412,37 @@ _ANCIENT_CONFIDENCE = {
 }
 
 
+#: Every Inferno part's confidence (Story 4.28, inferno-taulukot-2026-10-02.md
+#: and the lead's decisions on it), pinned the same way. The one table is
+#: read by five splits, and Pit and Ruins write one part each.
+_INFERNO_CONFIDENCE = {
+    # short boost: the window frames as its region are the lead's default
+    # for a question sent to him (#21); minipit: K12a whole is the default
+    # for another (#23); close/brackets: Story 4.20's reading of his guess.
+    "inferred": {"short boost", "minipit", "close/brackets"},
+    "stated": {
+        # Story 4.20.
+        "grill/pool", "ct boost", "ct", "cross", "tree", "auto", "puolimuuri",
+        "sandbags", "yläbanaani", "logit", "broom", "alabanaani", "t ramp",
+        "alamidi", "banaani", "boiler", "partsikäytävä", "apartments-kulma",
+        "apartments", "window", "balcony", "dark stairs", "t apartments",
+        "t-aps ovi", "back alley", "bridge", "underpass", "kitchen", "t balcony",
+        "secondin kulma", "second mid", "cubby", "long", "porch",
+        # Story 4.28.
+        "ykkönen", "kakkonen", "fountain", "coffin", "uudet", "dark", "ruins",
+        "truck", "ykkös boksi", "headshot boksi", "longbox", "takanurkka",
+        "coldzera boksi", "default laatikko", "moto", "pit", "puhujakoroke",
+    },
+}
+
+
 #: The maps whose every part's confidence is pinned (review round 1 of
-#: Story 4.27: one test for both).
-_CONFIDENCE = {"de_dust2": _DUST2_CONFIDENCE, "de_ancient": _ANCIENT_CONFIDENCE}
+#: Story 4.27: one test for every map built since).
+_CONFIDENCE = {
+    "de_dust2": _DUST2_CONFIDENCE,
+    "de_ancient": _ANCIENT_CONFIDENCE,
+    "de_inferno": _INFERNO_CONFIDENCE,
+}
 
 
 @pytest.mark.parametrize("map_name", sorted(_CONFIDENCE))
@@ -2408,3 +2452,110 @@ def test_every_part_carries_the_confidence_its_reading_earns(map_name: str) -> N
         for part in entry.split.parts if entry.split else []:
             found.setdefault(part.confidence, set()).add(part.callout)
     assert found == _CONFIDENCE[map_name]
+
+
+# -- Story 4.28: Inferno's sites -----------------------------------------------
+
+
+def _inferno() -> dict:
+    return load_callouts(_POOL)["de_inferno"]
+
+
+def test_infernos_sites_read_the_one_table_and_keep_the_area_for_the_rest() -> None:
+    """The lead's decision #1 on inferno-taulukot-2026-10-02.md: BombsiteA
+    and BombsiteB borrow Banana's table (parts_from), so his site answers of
+    2026-09-28 stand where 2026-10-02 is silent; both are the not-coarse
+    form, the area keeping its own callout for the rest. Ruins and Pit are
+    transit, cannot borrow a junction's table, and write one part each."""
+    table = _inferno()
+    banana = table["Banana"].split.parts
+    for area, callout in (("BombsiteA", "a site"), ("BombsiteB", "b site")):
+        entry = table[area]
+        assert (entry.callout, entry.coarse, entry.junction) == (callout, False, True)
+        assert entry.split.parts == banana, area
+        assert entry.split.inherited == {}, area
+    for area, callout, part in (("Pit", "pit", "minipit"), ("Ruins", "ruins", "puhujakoroke")):
+        entry = table[area]
+        assert (entry.callout, entry.coarse, entry.junction) == (callout, False, False)
+        assert [p.callout for p in entry.split.parts] == [part], area
+        assert not entry.split.parts[0].junction, area
+    names = [p.callout for p in banana]
+    # The B group comes first; the A group right after short boost.
+    assert names[:8] == [
+        "ykkönen", "kakkonen", "fountain", "coffin", "uudet", "dark", "ruins", "grill/pool"
+    ]
+    at = names.index("short boost")
+    assert names[at + 1 : at + 10] == [
+        "truck", "ykkös boksi", "headshot boksi", "longbox", "takanurkka",
+        "coldzera boksi", "default laatikko", "moto", "pit",
+    ]
+    for later in ("partsikäytävä", "balcony", "porch"):
+        assert names.index("truck") < names.index(later), later
+    broad = {p.callout for p in banana if p.broad}
+    assert {"truck", "takanurkka", "coldzera boksi", "partsikäytävä", "balcony"} <= broad
+
+
+def test_ykkonen_and_kakkonen_are_their_box_tops_and_the_ground_stays_b_site() -> None:
+    """The first box (his ykkonen) is the crossing box above its measured
+    edge, his "above the ground"; the second box's two corners carry that
+    band by his word (the lead's decision #5). Below the edge, the second
+    box's corners keep b site and the first box's G5d and G6b corners fall
+    to cross, his 2026-09-28 word."""
+    table = _inferno()
+    split = table["BombsiteB"].split
+    parts = {p.callout: p for p in split.parts}
+    (box,) = parts["ykkönen"].regions
+    assert (box.crossing, box.size) == (["G5d", "G6b", "G6a", "G5c"], 1.0)
+    edge = box.z[0]
+    assert {r.z for r in parts["kakkonen"].regions} == {(edge, INF)}
+    assert "the band is carried to G6a, G5c by his word" in parts["kakkonen"].source
+    assert _named_at(split, "G5c", 0.8, 0.8, edge) == "ykkönen"
+    assert _named_at(split, "G6a", 0.8, 0.2, edge) == "ykkönen"
+    assert _named_at(split, "G5d", 0.2, 0.8, edge - 0.01) == "cross"
+    assert _named_at(split, "G5c", 0.8, 0.8, edge - 0.01) is None
+    for cell, fx, fy in (("G6a", 0.2, 0.2), ("G5c", 0.2, 0.8)):
+        assert _named_at(split, cell, fx, fy, edge) == "kakkonen", cell
+        assert _named_at(split, cell, fx, fy, edge - 0.01) is None, cell
+    # The fountain's G5c top half beside them, at any height.
+    assert _named_at(split, "G5c", 0.5, 0.2, 300.0) == "fountain"
+
+
+def test_the_window_frames_and_truck_share_j12a_by_height() -> None:
+    """Short boost carries his window frames, J12a's top edge above its own
+    band (the default for the question sent to him, so inferred); truck
+    holds the J12a corner below it and J12b's top edge ahead of
+    partsikaytava and balcony; porch keeps the rest of J12a's top third."""
+    split = _inferno()["BombsiteA"].split
+    parts = {p.callout: p for p in split.parts}
+    frames = next(r for r in parts["short boost"].regions if r.cell == "J12a")
+    assert frames.y == (0.0, EDGE) and parts["short boost"].confidence == "inferred"
+    assert parts["short boost"].junction
+    edge = frames.z[0]
+    assert _named_at(split, "J12a", 0.75, 0.1, edge) == "short boost"
+    assert _named_at(split, "J12a", 0.75, 0.1, edge - 0.01) == "truck"
+    assert _named_at(split, "J12a", 0.25, 0.1, edge - 0.01) == "porch"
+    for fx in (0.25, 0.75):
+        assert _named_at(split, "J12b", fx, 0.1, 260.0) == "truck", fx
+    assert _named_at(split, "J12b", 0.25, 0.5, 260.0) == "partsikäytävä"
+    assert _named_at(split, "J12b", 0.75, 0.5, 260.0) == "balcony"
+
+
+def test_his_a_boxes_and_corners_are_where_he_put_them() -> None:
+    """Coldzera boksi is the crossing box of J10's four half-cells, yielding
+    J10a's corner to takanurkka; longbox is the middle of the edge K10a and
+    J10b share; moto is K9d's and L9c's top corners; pit merges with the
+    game's Pit and is transit."""
+    table = _inferno()
+    split = table["BombsiteA"].split
+    assert _named_at(split, "J10c", 0.9, 0.1) == "coldzera boksi"
+    assert _named_at(split, "J10b", 0.1, 0.9) == "coldzera boksi"
+    assert _named_at(split, "J10a", 0.9, 0.9) == "takanurkka"
+    assert _named_at(split, "J10b", 0.9, 0.9) == "takanurkka"
+    assert _named_at(split, "J10b", 0.9, 0.6) == "longbox"
+    assert _named_at(split, "K10a", 0.1, 0.5) == "longbox"
+    assert _named_at(split, "K10a", 0.1, 0.1) is None
+    assert _named_at(split, "K9d", 0.9, 0.1) == "moto"
+    assert _named_at(split, "L9c", 0.1, 0.1) == "moto"
+    pit = next(p for p in split.parts if p.callout == "pit")
+    assert pit.junction == table["Pit"].junction is False
+    assert _named_at(split, "K12b", 0.5, 0.5) == "pit"

@@ -2580,13 +2580,16 @@ def _shared_parts(path: Path, map_name: str, areas: dict) -> dict:
     """The map's raw areas with every ``parts_from = "<Area>"`` of a split
     replaced by that area's split parts (Story 4.20).
 
-    His answers for Inferno name places across three split areas at once
+    His answers for Inferno name places across several split areas at once
     (his top-of-mid answer points back to the boiler he named under
     Apartments), and one half-cell holds
-    positions of two of them (I11a: Apartments and TopofMid), so the three
-    splits read **one** table -- written once and derived, not three copies
-    that may drift. Each split still renames only its own area's positions.
-    The table must be written on a split that does not itself borrow.
+    positions of two of them (I11a: Apartments and TopofMid), so the splits
+    read **one** table -- written once and derived, not one copy per split
+    that may drift. Since Story 4.28 five Inferno splits read it: Banana's,
+    which writes it, and Apartments', TopofMid's and both sites', so his
+    site answers of 2026-09-28 reach the sites' positions. Each split still
+    renames only its own area's positions. The table must be written on a
+    split that does not itself borrow.
 
     Raises:
         SettingsError: The named area has no split, or borrows itself, or

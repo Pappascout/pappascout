@@ -83,11 +83,13 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 3 ruins -> b site",
-          "    - 1 auto -> yläbanaani -> alabanaani -> porch -> apartments -> window",
-          "    - 1 ct spawn -> a site -> arch",
-          "    - 1 yläbanaani -> alabanaani -> long -> arch ⇄ long",
-          "  - 2 a site -> 1 a site, 1 balcony ⇄ a site"
+          "  - 3 ruins",
+          "    - 1 cross -> yläbanaani -> alabanaani -> long -> arch ⇄ long",
+          "    - 1 ct -> yläbanaani -> cross -> ct -> ct spawn -> a site -> arch",
+          "    - 1 yläbanaani -> auto ⇄ yläbanaani -> alabanaani -> porch -> apartments -> window",
+          "  - 2 a site",
+          "    - 1 balcony -> porch",
+          "    - 1 porch"
         ],
         "won": true
       }
@@ -100,10 +102,10 @@
           "  - 3 t spawn -> alamidi -> t ramp",
           "    - 2 alabanaani",
           "      - 1 logit ⇄ alabanaani -> auto -> yläbanaani -> alabanaani -> middle",
-          "      - 1 second mid -> porch -> a site",
+          "      - 1 second mid -> porch",
           "    - 1 middle -> kuoli middle (15 s)",
           "  - 2 alamidi -> second mid",
-          "    - 1 balcony -> apartments -> boiler -> a site",
+          "    - 1 balcony -> apartments -> boiler -> porch -> a site",
           "    - 1 kuoli second mid (16 s)"
         ],
         "won": true
@@ -284,12 +286,12 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 2 ruins -> b site",
-          "    - 1 auto -> yläbanaani -> b site -> ct spawn",
-          "    - 1 yläbanaani ⇄ b site -> ct spawn",
+          "  - 2 ruins -> cross",
+          "    - 1 auto -> yläbanaani -> cross -> b site -> uudet -> fountain -> ct spawn",
+          "    - 1 yläbanaani -> coffin -> fountain -> b site -> ct spawn",
           "  - 1 a site -> balcony -> partsikäytävä ⇄ balcony -> kuoli balcony (27 s)",
           "  - 1 arch -> close/brackets (päätelty) ⇄ arch -> kuoli a site (32 s)",
-          "  - 1 long -> porch -> a site -> balcony ⇄ a site -> kuoli a site (30 s)"
+          "  - 1 long -> porch -> balcony -> a site -> kuoli a site (30 s)"
         ],
         "won": false
       }

@@ -263,7 +263,7 @@
 #                      where K13b and L13a meet, which no region can write.
 #                      parts_from = "<Area>" in a split reads that area's
 #                      split parts instead of writing its own: one table for
-#                      several splits of a map (Inferno's three; Ancient's
+#                      several splits of a map (Inferno's five; Ancient's
 #                      CTSpawn, borrowing BombsiteA's, Story 4.27), each still
 #                      renaming only its own area's positions. The borrower
 #                      must agree with the lender on junction, because a
@@ -1860,6 +1860,77 @@ bx = 514.2199095575344
 by = 1079.122363375169
 
 [[de_inferno.Banana.split.parts]]
+callout = "ykkönen"
+regions = [
+  { crossing = ["G5d", "G6b", "G6a", "G5c"], size = 1.0, z = [215.9, inf], words = "Ykkönen on ruutujen G5d,G6b,G6a,G5c risteyksessä" },
+]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Ykkönen on ruutujen G5d,G6b,G6a,G5c risteyksessä. Sen päällä voi olla ja sinne mennään hyppäämällä kahdesti, joten siinä on kahta eri z koordinaattia maan tason yläpuolella'; a box one half-cell wide and high on the crossing, the size of the postimerkki, ct box, dig and short boost precedents (a half-size box holds 1 tick; inferno-taulukot-2026-10-02.md section 3). The guide's 1ST (reittimalli-inferno-2026-09-24.md section 4.6), and not ykkös boksi, his box on A site. Height band measured, not guessed (inferno-taulukot-2026-10-02.md section 3, the crossing box): the live ticks of the map inside the region fall in two levels, the largest gap running from 193.03 to 238.77 (23 below, 13 above); the band edge 215.9 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (re-derived under -m archive). The upper level is the game's BombsiteB (13 of 13 ticks above); so is the lower (23 of 23 below), so the direction rests on his words: 'maan tason yläpuolella'; ykkönen is the upper level, above the ground. His two levels above the ground, z 239 and 268 to 279, are 29.7 apart, so the rule cannot separate them, and both are ykkönen. The 7 ticks at z 189 to 193 on G5d's left edge beside the crates lie below the edge; whether they are its lower box is a question sent to him (ambiguity 4), and the rule cannot separate them from the 167 floor either. It takes 13 BombsiteB positions, z 239 to 279. Junction basis: holds positions of BombsiteB"
+
+[[de_inferno.Banana.split.parts]]
+callout = "kakkonen"
+regions = [
+  { cell = "G6a", x = [0.0, 0.5], y = [0.0, 0.5], z = [215.9, inf], words = "G6a vasen ylänurkka" },
+  { cell = "G5c", x = [0.0, 0.5], y = [0.5, 1.0], z = [215.9, inf], words = "G5c vasen alanurkka" },
+]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Kakkonen on sitellä ykkösen jälkeen ruudun G6a vasen ylänurkka ja G5c vasen alanurkka kohdalla hieman neljännesruutua pienempi. Sen päälle pääsee hyppäämällä ykkösen päältä, joten siinä pitäisi olla vain yhtä z koordinaattia'; the two corners sized by the size rule he confirmed for edges and corners (callouts.toml header). The guide's 2ND (reittimalli-inferno-2026-09-24.md section 4.6). Height band measured, not guessed (inferno-taulukot-2026-10-02.md section 3): his two corners alone hold 23 live ticks, 20 at z 161 to 168 and 3 at z 281, only 3 above their gap, so they fail the band rule of the callouts.toml header; the band is ykkönen's, measured on ykkönen's crossing box, where the largest gap runs from 193.03 to 238.77 (23 below, 13 above): the band edge 215.9 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (re-derived under -m archive). The upper level is the game's BombsiteB (13 of 13 ticks above); so is the lower (23 of 23 below), so the direction rests on his words: 'maan tason yläpuolella': kakkonen is reached from ykkönen's top and has one level, and kakkonen is the upper level; the band is carried to G6a, G5c by his word ('hyppäämällä ykkösen päältä', 'vain yhtä z koordinaattia'; the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'), #5), so the 20 ground positions beside the box stay b site. It takes 3 BombsiteB positions, the box top at z 281. Junction basis: holds positions of BombsiteB"
+
+[[de_inferno.Banana.split.parts]]
+callout = "fountain"
+cells = ["F5b", "G5a"]
+regions = [
+  { cell = "F4d", y = [0.5, 1.0], words = "F4d ja G4c alapuolisko" },
+  { cell = "G4c", y = [0.5, 1.0], words = "F4d ja G4c alapuolisko" },
+  { cell = "F5d", y = [0.0, 0.5], words = "F5d ja G5c yläpuoliskot" },
+  { cell = "G5c", y = [0.0, 0.5], words = "F5d ja G5c yläpuoliskot" },
+]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Fountain alue B sitellä on Ruuduissa F4d ja G4c alapuolisko,F5b ja G5a kokonaan, joiden risteämiskohdassa on suihkulähteen keskiosa, joka on pieni tolppa jonka takana voi osittain olla piilossa, sekä F5d ja G5c yläpuoliskot. Suihkulähteen reunat ovat korotettu, jotta vesi pysyy sen sisällä'. The guide's FOUNTAIN. The centre post has no name of its own and is not a place (spec 4.28 decision 4). The raised rim and the floor are both fountain: on its 151 live ticks, z 162 to 193, the largest gap is 10.48, so it fails the band rule of the callouts.toml header and has no band. It takes 151 BombsiteB positions. Junction basis: holds positions of BombsiteB"
+
+[[de_inferno.Banana.split.parts]]
+callout = "coffin"
+regions = [
+  { cell = "G4a", x = [0.5, 1.0], y = [0.5, 1.0], words = "G4a oikea alanurkka" },
+  { cell = "G4c", x = [0.5, 1.0], y = [0.0, 0.5], words = "G4c oikea ylänurkka" },
+]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'G4c ja G4a risteyspiste, G4c oikea ylänurkka ja G4a oikea alanurkka on coffin. Sen päälle voi hyppiä ja sen takana voi olla piilossa'; the two corners sized by the size rule he confirmed for edges and corners (callouts.toml header), where the guide draws COFFINS. Its top, 10 ticks at z 209 to 210 over 4 at 163 to 180, is 29.38 units over the ground, under the band rule's 36, so it fails the band rule of the callouts.toml header; the top and the hiding spot behind it are both coffin. It takes 14 BombsiteB positions. Junction basis: holds positions of BombsiteB"
+
+[[de_inferno.Banana.split.parts]]
+callout = "uudet"
+regions = [
+  { cell = "F5c", x = [0.75, 1.0], words = "F5c ruudun oikeassa reunassa" },
+]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Sitten pidemmälle sitelle uudet ovat F5c ruudun oikeassa reunassa. Sen taakse voi mennä piiloon mutta sen päälle ei pääse'; F5c's right edge sized by the size rule he confirmed for edges and corners (callouts.toml header), where the guide's NEW BOX pointer ends (reittimalli-inferno-2026-09-24.md section 1: 'uudet (newbox)'). The hiding spot behind the box is not a place of its own (spec 4.28 decision 4). It takes 2 BombsiteB positions. Junction basis: holds positions of BombsiteB"
+
+[[de_inferno.Banana.split.parts]]
+callout = "dark"
+cells = ["F4a"]
+junction = true
+junction_source = "holds none of the split areas' positions and no live tick of the map lies in it; it lies in the game's BombsiteB on the guide picture, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'F4a on dark ja siellä voi olla kokonaan piilossa'. The guide's DARK, in the B site's corner (reittimalli-inferno-2026-09-24.md section 1: 'dark toisessa kulmassa'); not dark stairs, the T side's. Junction basis: holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's BombsiteB on the guide picture"
+
+[[de_inferno.Banana.split.parts]]
+callout = "ruins"
+cells = ["G3b", "G3d"]
+junction = false
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Coffinin takaa pääsi ruins alueelle. Siellä G3b ja G3d ruuduissa on lyhyet portaat kaksi-kolme askelta alapäin'. The game's Ruins is his ruins (reittimalli-inferno-2026-09-24.md section 4.4: 'they mostly say ruins'), so the counts merge, and it is transit. The stairs are no place of their own and get no band (spec 4.28 decision 1). It takes 7 BombsiteB positions, z 127 to 165, the stairs from the site floor down to ruins (the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'), #12). Junction basis: the same place as the game's Ruins"
+
+[[de_inferno.Banana.split.parts]]
 callout = "grill/pool"
 regions = [
   { cell = "G5b", y = [0.0, 0.25], words = "G5b ja H5a yläreuna" },
@@ -1874,9 +1945,9 @@ source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his 
 callout = "ct boost"
 cells = ["H5d"]
 junction = true
-junction_source = "inside ct ('H5d on CT:ssä Beellä boost'): holds none of the split area's positions; its region lies in the game's BombsiteB (101 of the 160 live ticks of the map inside it), whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'H5d on CT:ssä Beellä boost' and his words: '(joissa h5d:ssä z koordinaatti paljastaa onko pelaaja buustissa'; the name is his, confirmed the same morning: puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', first line, his words: 'Kaksi boostia ovat ct boost ja short boost'. No height band: the live ticks of H5d do show a gap, from 138.57 to 245.87, but only 4 lie above it, so it fails the band rule of the callouts.toml header (zbands-mitattu-2026-09-28.md); the whole of H5d is ct boost, as his first words give it. Junction basis: inside ct, whose basis it shares ('H5d on CT:ssä Beellä boost')"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'H5d on CT:ssä Beellä boost' and his words: '(joissa h5d:ssä z koordinaatti paljastaa onko pelaaja buustissa'; the name is his, confirmed the same morning: puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', first line, his words: 'Kaksi boostia ovat ct boost ja short boost'. No height band: the live ticks of H5d do show a gap, from 138.57 to 245.87, but only 4 lie above it, so it fails the band rule of the callouts.toml header (zbands-mitattu-2026-09-28.md); the whole of H5d is ct boost, as his first words give it. vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Tietysti myös CT boost H5d ruudussa ja hieman ehkä H5c ruudun puolella on yksi missä on eri z arvo'. KNOWN LIMIT, H5c: H5c's right quarter holds only 3 floor ticks (z 132 to 140) and no boost top, and with it the place still fails the band rule (9 below, 4 above; inferno-taulukot-2026-10-02.md ambiguity 16), so H5c stays ct and cross. Since Story 4.28 BombsiteA's and BombsiteB's splits read this table too (the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'), #1), and ct boost takes 5 BombsiteB positions, 4 on the boost at z 246 and 1 on the ground at 139 (the known limit of H5d's whole). Junction basis: holds positions of BombsiteB"
 
 [[de_inferno.Banana.split.parts]]
 callout = "ct"
@@ -1886,9 +1957,9 @@ regions = [
   { cell = "H5a", x = [0.5, 1.0], y = [0.5, 1.0], words = "H5a oikea alanurkka" },
 ]
 junction = true
-junction_source = "holds none of the split area's positions; its region lies in the game's BombsiteB (101 of the 160 live ticks of the map inside it), whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'H5c oikea ylänurkka ja H5a oikea alanurkka on CT:n alku Bllä ja se jatkuu hielä H5b'; the two corners sized by the size rule he confirmed for edges and corners (callouts.toml header). His 'ja H5d ruutuihin (joissa h5d:ssä z koordinaatti paljastaa onko pelaaja buustissa' is not built: H5d's height gap fails the band rule of the callouts.toml header (zbands-mitattu-2026-09-28.md), so H5d is ct boost's whole. Named 'ct' by the lead: his 'CT:n alku Bllä'. Junction basis: holds none of the split area's positions; its region lies in the game's BombsiteB (101 of the 160 live ticks of the map inside it)"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'H5c oikea ylänurkka ja H5a oikea alanurkka on CT:n alku Bllä ja se jatkuu hielä H5b'; the two corners sized by the size rule he confirmed for edges and corners (callouts.toml header). His 'ja H5d ruutuihin (joissa h5d:ssä z koordinaatti paljastaa onko pelaaja buustissa' is not built: H5d's height gap fails the band rule of the callouts.toml header (zbands-mitattu-2026-09-28.md), so H5d is ct boost's whole. Named 'ct' by the lead: his 'CT:n alku Bllä'. Since Story 4.28 BombsiteA's and BombsiteB's splits read this table too (the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'), #1), and ct takes 101 BombsiteB positions, his CT:n alku at B. Junction basis: holds positions of BombsiteB"
 
 [[de_inferno.Banana.split.parts]]
 callout = "cross"
@@ -1899,9 +1970,9 @@ regions = [
 ]
 broad = true
 junction = true
-junction_source = "holds none of the split area's positions; its region lies in the game's BombsiteB (219 of the 219 live ticks of the map inside it), whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'G6b,H6a juuri ja juuri ja etenkin G5d,H5c,H5a,G5b ovat crossia B:llä'; G6b and H6a by his answer of the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 1, his words: 'Sanotaan vaikka G6b ja H6a yläreuna crossia ja alapuolisko yläbanaania' -- the top half, the half the bottom half leaves (the lead's reading of his answer, not the edge rule). Broad: it yields to every earlier part it overlaps, taking what grill/pool and ct leave in G5b, H5a and H5c (A9). Junction basis: holds none of the split area's positions; its region lies in the game's BombsiteB (219 of the 219 live ticks of the map inside it)"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'G6b,H6a juuri ja juuri ja etenkin G5d,H5c,H5a,G5b ovat crossia B:llä'; G6b and H6a by his answer of the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 1, his words: 'Sanotaan vaikka G6b ja H6a yläreuna crossia ja alapuolisko yläbanaania' -- the top half, the half the bottom half leaves (the lead's reading of his answer, not the edge rule). Broad: it yields to every earlier part it overlaps, taking what grill/pool and ct leave in G5b, H5a and H5c (A9). Since Story 4.28 BombsiteA's and BombsiteB's splits read this table too (the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'), #1), and cross takes 217 BombsiteB positions; it yields G5d's and G6b's corners above ykkönen's band to ykkönen, written before it. Junction basis: holds positions of BombsiteB"
 
 [[de_inferno.Banana.split.parts]]
 callout = "tree"
@@ -1944,9 +2015,9 @@ callout = "yläbanaani"
 cells = ["F6d", "F7b", "G6c", "G6d", "G6b", "H6a", "H6c", "H7b", "H7a", "G7b", "G7a", "F7d", "G7c"]
 broad = true
 junction = true
-junction_source = "the whole Banana was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'banaani on kontaktipiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); yläbanaani is a place he names that holds its positions"
+junction_source = "the whole Banana was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'banaani on kontaktipiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); yläbanaani is a place he names that holds its positions; it holds positions of BombsiteB too, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'Yläbanaani: F6d,F7b,G6c,G6d;G6b,H6a,H6c,H7b,H7a,G7b,G7a,F7b' and his words: 'yläbanaani alkaa noin F7d,G7c ja on yläreunaan G6d,H6c asti'; F7b written twice, read as one (A4). His answer of the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 1 and 2: his words: 'alapuolisko yläbanaania' (G6b, H6a: what cross leaves) and his words: 'Levittävä pelaaja voi olla ruudun G7a vasemmassa alanurkassa, ruudussa F7b, F7d yläreunassa tai G7c ruudussa' -- that player stands in yläbanaani. Broad: it yields to every earlier part it overlaps, taking what auto, puolimuuri, sandbags and cross leave; finer than banaani ('banaani ⊃ yläbanaani'). Junction basis: holds positions of Banana"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his words: 'Yläbanaani: F6d,F7b,G6c,G6d;G6b,H6a,H6c,H7b,H7a,G7b,G7a,F7b' and his words: 'yläbanaani alkaa noin F7d,G7c ja on yläreunaan G6d,H6c asti'; F7b written twice, read as one (A4). His answer of the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 1 and 2: his words: 'alapuolisko yläbanaania' (G6b, H6a: what cross leaves) and his words: 'Levittävä pelaaja voi olla ruudun G7a vasemmassa alanurkassa, ruudussa F7b, F7d yläreunassa tai G7c ruudussa' -- that player stands in yläbanaani. Broad: it yields to every earlier part it overlaps, taking what auto, puolimuuri, sandbags and cross leave; finer than banaani ('banaani ⊃ yläbanaani'). Since Story 4.28 BombsiteA's and BombsiteB's splits read this table too (the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'), #1), and yläbanaani takes 60 BombsiteB positions: the game's B site reaches his H6a and G6b bottom halves, G6d and H6c. Junction basis: holds positions of Banana, BombsiteB"
 
 [[de_inferno.Banana.split.parts]]
 callout = "logit"
@@ -2014,10 +2085,108 @@ source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 2, his 
 callout = "short boost"
 regions = [
   { crossing = ["I11c", "I11d", "I12a", "I12b"], size = 1.0, z = [204.84, inf], words = "se on noin yhden ruudun kokoinen, mutta I11c,I11d,I12a,I12b ruutujen risteyspisteessä" },
+  { cell = "J12a", y = [0.0, 0.25], z = [236.37, inf], words = "pari  pientä ikkunan karmia joissa voi myös seistä ruudussa J12a yläreunassa" },
 ]
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "inferred"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 7, his words: 'Shortissa on myös boost alue joka erottuu z koordinaateista, se on noin yhden ruudun kokoinen, mutta I11c,I11d,I12a,I12b ruutujen risteyspisteessä'; a box one half-cell wide and high on the crossing -- his size, and the size of the postimerkki, ct box and dig precedents (A10); the name confirmed the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', first line, his words: 'Kaksi boostia ovat ct boost ja short boost'. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, the crossing box): the live ticks of the map inside the region fall in two levels, the largest gap running from 142.03 to 267.65 (41 below, 44 above); the band edge 204.84 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's Quad (43 of 44 ticks above); so is the lower (33 of 41 below), so the direction rests on his words: a boost is standing on something; the boost is the upper level. vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Shortissa kun tulee A:lle päin siellä oli se boost katto I11d,I11c,I12a,I12b ruutujen risteyksissä, sekä siinä on samalla korkeudella pari  pientä ikkunan karmia joissa voi myös seistä ruudussa J12a yläreunassa': his boost katto is this place, on the same crossing, and keeps the name he confirmed. The window frames at its height are read as a region of it, J12a's top edge sized by the size rule he confirmed for edges and corners (callouts.toml header) above its own band: the lead's default for a question sent to him (inferno-taulukot-2026-10-02.md ambiguity 21), a reading of ours that moves 7 positions, so short boost is inferred until he answers. Height band measured, not guessed (inferno-taulukot-2026-10-02.md section 3, J12a's top edge): the live ticks of the map inside it fall in two levels, the largest gap running from 186.94 to 285.8 (8 below, 7 above); the band edge 236.37 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (re-derived under -m archive). The upper level is the game's BombsiteA (7 of 7 ticks above); so is the lower (8 of 8 below), so the direction rests on his words: 'samalla korkeudella' as the boost roof. Since Story 4.28 BombsiteA's and BombsiteB's splits read this table too (the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'), #1), and short boost takes 8 BombsiteA positions, 7 frames and 1 on the roof; holding a junction area's positions it is a junction by the header's rule (the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'), #3). Junction basis: holds positions of BombsiteA"
+
+[[de_inferno.Banana.split.parts]]
+callout = "truck"
+regions = [
+  { cell = "J12b", y = [0.0, 0.25], words = "J12b yläreuna" },
+  { cell = "J11d", y = [0.75, 1.0], words = "J11d alareuna" },
+  { cell = "J12a", x = [0.5, 1.0], y = [0.0, 0.5], words = "J12a oikea ylänurkka" },
+]
+broad = true
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'J12b yläreuna, sekä J11d alareuna ja J12a oikea ylänurkka ovat kaikki truck aluetta shortissa, sen takana voi olla pitiltä piilossa, sekä sen truckin päälle voi hyppiä ja se onkin reitti balconylle ylös tästä'; the edges and the corner sized by the size rule he confirmed for edges and corners (callouts.toml header). Inside his short (porch), so it comes before porch, and before partsikäytävä and balcony: his words of 2026-10-02 name J12b's top edge, and they win over his halves of J12b of 2026-09-28. Broad: it yields to every earlier part it overlaps, J12a's top-right corner above short boost's window-frame band. On its 29 live ticks only 2 lie below its gap (z 142, against 27 at 186 to 322), so it fails the band rule of the callouts.toml header, and the top and the side are both truck. It takes 23 BombsiteA positions. Junction basis: holds positions of BombsiteA"
+
+[[de_inferno.Banana.split.parts]]
+callout = "ykkös boksi"
+regions = [
+  { cell = "J11a", x = [0.5, 1.0], y = [0.5, 1.0], words = "J11a oikea alanurkka" },
+  { cell = "J11b", x = [0.0, 0.5], y = [0.5, 1.0], words = "J11b vasen alanurkka" },
+]
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Sitten J11a oikea alanurkka ja J11b vasen alanurkka on ykkös boksi sitellä jonka päällä voi olla'; the corners sized by the size rule he confirmed for edges and corners (callouts.toml header). Not ykkönen, his box on B site. Its top is clear, 7 ticks at z 220, but only 2 lie below it (z 160), so it fails the band rule of the callouts.toml header. It takes 9 BombsiteA positions. Junction basis: holds positions of BombsiteA"
+
+[[de_inferno.Banana.split.parts]]
+callout = "headshot boksi"
+regions = [
+  { cell = "J10d", x = [0.5, 1.0], y = [0.5, 1.0], words = "J10d oikea alanurkka" },
+]
+junction = true
+junction_source = "holds none of the split areas' positions and no live tick of the map lies in it; it lies in the game's BombsiteA on the guide picture, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Sitten J10d oikea alanurkka on headshot boksi sitellä. Sen päälle pääsee, mutta tyypillisesti siinä pidetään balconyä headshot kulmasta tai toiseen suuntaan pidetään longia headshot kulmana, sen vieressä on myös tolppa jonka takana voi olla osittain piilossa. Tolppa on kiinni laatikossa sen vasemmassa runassa'; the corner sized by the size rule he confirmed for edges and corners (callouts.toml header). Headshot kulma is a way of holding and the post has no name, so neither is a place (spec 4.28 decision 4). Junction basis: holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's BombsiteA on the guide picture"
+
+[[de_inferno.Banana.split.parts]]
+callout = "longbox"
+regions = [
+  { cell = "K10a", x = [0.0, 0.25], y = [0.25, 0.75], words = "K10a keskellä vasemmalla" },
+  { cell = "J10b", x = [0.75, 1.0], y = [0.25, 0.75], words = "Se ylttää vielä ruudun J10b puolelle" },
+]
+junction = true
+junction_source = "holds none of the split areas' positions and no live tick of the map lies in it; it lies in the game's BombsiteA on the guide picture, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Yksi laatikko on vielä sitellä K10a keskellä vasemmalla, laatikko on noin neljäsosaruudun kokoinen, mutta keskellä ja vasemmassa reunassa ruutua. Se ylttää vielä ruudun J10b puolelle. Sillä ei ole ollut oikein omaa callouttia mutta ehkä kutsua longbox nimellä'; his name, built with his hedge ('ehkä kutsua longbox nimellä'; spec 4.28 decision 3). K10a's left edge and J10b's right edge, each the size rule's quarter (callouts.toml header), in the middle half of the height ('keskellä'), where the guide draws the box (J10b fx 0.88 to K10a fx 0.24, fy 0.34 to 0.68). The box is solid. Junction basis: holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's BombsiteA on the guide picture"
+
+[[de_inferno.Banana.split.parts]]
+callout = "takanurkka"
+regions = [
+  { cell = "J10a", x = [0.5, 1.0], y = [0.5, 1.0], words = "J10a oikea alanurkka" },
+  { cell = "J10b", x = [0.5, 1.0], y = [0.5, 1.0], words = "J10b iujea alanurkka" },
+]
+broad = true
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Sen takana on vielä J10a oikea alanurkka  ja J10b iujea alanurkka jota rajaa pieni rakennuksen osa tekevät siten kulmaan nurkan jota kutsutaan takanurkka'; his 'iujea' is oikea, the lead's reading of a typo in the answer document; the corners sized by the size rule he confirmed for edges and corners (callouts.toml header). Broad: it yields to every earlier part it overlaps, longbox's middle of J10b's right edge, where no live tick lies. It takes 2 BombsiteA positions. Junction basis: holds positions of BombsiteA"
+
+[[de_inferno.Banana.split.parts]]
+callout = "coldzera boksi"
+regions = [
+  { crossing = ["J10c", "J10d", "J10b", "J10a"], size = 1.0, words = "coldzera boksi ruutujen J10c,J10d,J10b,J10a risteyksessä" },
+]
+broad = true
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Sitten on coldzera boksi ruutujen J10c,J10d,J10b,J10a risteyksessä eniten J10c oikeassa ylänurkassa, mutta kaikkien ruutujen alueella, kuitenkin isoin osa on ruudussa J10c. Sen päällä voi olla'; a box one half-cell wide and high on the crossing, the precedents' size, which holds J10c's top-right corner whole. Broad: it yields to every earlier part it overlaps, takanurkka's J10a corner behind it, where no live tick lies. Its top is 7 ticks at z 220 over 4 at 161, so it fails the band rule of the callouts.toml header. It takes 11 BombsiteA positions. Junction basis: holds positions of BombsiteA"
+
+[[de_inferno.Banana.split.parts]]
+callout = "default laatikko"
+regions = [
+  { cell = "K11a", x = [0.0, 0.5], y = [0.5, 1.0], words = "K11a noin sen vasen alanurkka" },
+]
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Sitellä taas ruudussa K11a noin sen vasen alanurkka on default laatikko. Sen päälle voi hyppiä kahdella hypyllä tai sitten yhdellä hypyllä näet juuri laatikon yli balconylle ja juuri sisään apartmentsiin headshot kulmana'; the corner sized by the size rule he confirmed for edges and corners (callouts.toml header), where the guide draws the box. Its 2 live ticks are one level, so its two jump heights cannot be measured. It takes 2 BombsiteA positions. Junction basis: holds positions of BombsiteA"
+
+[[de_inferno.Banana.split.parts]]
+callout = "moto"
+regions = [
+  { cell = "K9d", x = [0.5, 1.0], y = [0.0, 0.5], words = "K9d oikea ylänurkka" },
+  { cell = "L9c", x = [0.0, 0.5], y = [0.0, 0.5], words = "L9c vasen ylänurkka" },
+]
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Ruudussa K9d oikea ylänurkka ja L9c vasen ylänurkka on nimeltään moto tai pikkuhiekka, ehkä moto on parempi. Sinne pääsee piiloon, mutta siellä ei ole korkeuseroja tai laatikoita'; the corners sized by the size rule he confirmed for edges and corners (callouts.toml header), exactly where the guide writes MOTO (reittimalli-inferno-2026-09-24.md section 1: 'pieni kolo joka on callouts kuvassa moto'). Pikkuhiekka is his other name for it. It takes 5 BombsiteA positions. Junction basis: holds positions of BombsiteA"
+
+[[de_inferno.Banana.split.parts]]
+callout = "pit"
+cells = ["K12b", "L12a", "L12c", "K12d"]
 junction = false
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 7, his words: 'Shortissa on myös boost alue joka erottuu z koordinaateista, se on noin yhden ruudun kokoinen, mutta I11c,I11d,I12a,I12b ruutujen risteyspisteessä'; a box one half-cell wide and high on the crossing -- his size, and the size of the postimerkki, ct box and dig precedents (A10); the name confirmed the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', first line, his words: 'Kaksi boostia ovat ct boost ja short boost'. Height band measured, not guessed (zbands-mitattu-2026-09-28.md, the crossing box): the live ticks of the map inside the region fall in two levels, the largest gap running from 142.03 to 267.65 (41 below, 44 above); the band edge 204.84 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (at least 5 ticks on each side of the largest gap, the gap at least 36 units -- twice the game's 18-unit step -- and at least 1.5 times the second-largest gap) (spec 4.20 decision 2; re-derived under -m archive). The upper level is the game's Quad (43 of 44 ticks above); so is the lower (33 of 41 below), so the direction rests on his words: a boost is standing on something; the boost is the upper level. Junction basis: holds none of the split area's positions; its region lies in the game's Quad (43 of the 44 live ticks of the map inside it)"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Iso pit taas on sitten siellä K12b,L12a,L12c,K12d pääosin on sitä PIT aluetta. L12a ja L12c on yleisimmöt pit sijainnit, koska silloin pelaaja on myös sen muurin takana joka rajaa pittiä ruudussa K12b oikeassa reunassa ruudun yläreunasta melkein alareunaan'. The game's Pit is his pit, so the counts merge, and it is transit. The wall has no name and is not a place; on its 1 live tick nobody stands on it. It takes 1 BombsiteA position. Junction basis: the same place as the game's Pit"
 
 [[de_inferno.Banana.split.parts]]
 callout = "boiler"
@@ -2032,6 +2201,7 @@ source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his 
 
 [[de_inferno.Banana.split.parts]]
 callout = "partsikäytävä"
+broad = true
 cells = ["I12d", "J12c", "J12d"]
 regions = [
   { cell = "I12c", x = [0.75, 1.0], words = "I12c oikea reuna" },
@@ -2041,7 +2211,7 @@ regions = [
 junction = true
 junction_source = "the whole Apartments was a junction before the split (alueomistus-pohja-2026-09-26.md de_inferno: 'ct apps on myös kontaktipiste, mutta ei aina'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); partsikäytävä is a place he names that holds its positions"
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'Long hall: I12c oikea reuna, I12d,J12c,J12d,J12A (mutta vain oikea alareuna)'; I12c's edge and J12a's corner sized by the size rule he confirmed for edges and corners (callouts.toml header). J12b's left half and the name by his answer of the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 4, his words: 'No long hall on apartments sisällä ja long hall on tarkempi callout. J12b vasen puolisko on long hall (kutsumme muuten sitä partsikäytäväksi, voitaisiin käyttää sitä nimeä)'. Finer than apartments. Junction basis: holds positions of Apartments"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'Long hall: I12c oikea reuna, I12d,J12c,J12d,J12A (mutta vain oikea alareuna)'; I12c's edge and J12a's corner sized by the size rule he confirmed for edges and corners (callouts.toml header). J12b's left half and the name by his answer of the same morning, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the four open readings, same morning', answer 4, his words: 'No long hall on apartments sisällä ja long hall on tarkempi callout. J12b vasen puolisko on long hall (kutsumme muuten sitä partsikäytäväksi, voitaisiin käyttää sitä nimeä)'. Finer than apartments. Broad since Story 4.28: it yields J12b's top edge to truck, his word of 2026-10-02 for it (vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', 'J12b yläreuna ... truck aluetta shortissa'). Junction basis: holds positions of Apartments"
 
 [[de_inferno.Banana.split.parts]]
 callout = "apartments-kulma"
@@ -2077,6 +2247,7 @@ source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his 
 
 [[de_inferno.Banana.split.parts]]
 callout = "balcony"
+broad = true
 regions = [
   { cell = "J12b", x = [0.5, 1.0], words = "J12b oikea puoli noin puolesta välistä" },
   { cell = "K12a", x = [0.0, 0.25], words = "K12a vasen reuna (noin neljäsosa ruudusta)" },
@@ -2085,7 +2256,7 @@ regions = [
 junction = true
 junction_source = "the same place as the game's Balcony (callout 'balcony'), whose junction it must share: alueomistus-pohja-2026-09-26.md de_inferno: 'balcony ja boiler ovat yleensä aina kontaktipisteitä'"
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'Balcony: J12b oikea puoli noin puolesta välistä,K12a vasen reuna (noin neljäsosa ruudusta), K12c vasen yläkulma'; K12c's corner sized by the size rule he confirmed for edges and corners (callouts.toml header). The game's Balcony is balcony, so the counts merge. No height band: he says 'balcony on pikku pit:n päällä joten ne erottaa vain z koordinaatista', but the archive shows one level there, not two (zbands-mitattu-2026-09-28.md, balcony: of the 77 live ticks of the map in these regions 75 lie at z 227.6 to 312.8, and the two below are single ticks at 125.1 and 191.8, not a second level, so it fails the band rule of the callouts.toml header; beside them, the 52 Apartments positions in J12b's left half lie at 260.0 to 261.0, the same level), so no band is built and nothing is named pit (A15). Junction basis: the same place as the game's Balcony"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 6, his words: 'Balcony: J12b oikea puoli noin puolesta välistä,K12a vasen reuna (noin neljäsosa ruudusta), K12c vasen yläkulma'; K12c's corner sized by the size rule he confirmed for edges and corners (callouts.toml header). The game's Balcony is balcony, so the counts merge. No height band: he says 'balcony on pikku pit:n päällä joten ne erottaa vain z koordinaatista', but the archive shows one level there, not two (zbands-mitattu-2026-09-28.md, balcony: of the 77 live ticks of the map in these regions 75 lie at z 227.6 to 312.8, and the two below are single ticks at 125.1 and 191.8, not a second level, so it fails the band rule of the callouts.toml header; beside them, the 52 Apartments positions in J12b's left half lie at 260.0 to 261.0, the same level), so no band is built and nothing is named pit (A15). Broad since Story 4.28: it yields J12b's top edge to truck, his word of 2026-10-02 for it (vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', 'J12b yläreuna ... truck aluetta shortissa'). Since Story 4.28 BombsiteA's and BombsiteB's splits read this table too (the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'), #1), and balcony takes 8 BombsiteA positions: 7 on the balcony and 1 at z 125, minipit's level, a known limit, since balcony's regions fail the band rule (inferno-taulukot-2026-10-02.md ambiguity 24). Junction basis: the same place as the game's Balcony"
 
 [[de_inferno.Banana.split.parts]]
 callout = "dark stairs"
@@ -2221,9 +2392,9 @@ regions = [
 ]
 broad = true
 junction = true
-junction_source = "the whole TopofMid was a junction before the split (reittimalli-inferno-2026-09-24.md section 1: 'Ylämidissä taas reitti jakaantuu kahteen'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); porch is a place he names that holds its positions"
+junction_source = "the whole TopofMid was a junction before the split (reittimalli-inferno-2026-09-24.md section 1: 'Ylämidissä taas reitti jakaantuu kahteen'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review; spec 4.20 decision 8); porch is a place he names that holds its positions; it holds positions of BombsiteA too, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
 confidence = "stated"
-source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 7, his words: 'Porch eli short on I10c ja I10d ruudun alareunat,I11a ja I11c oikeat puoliskot, jotka eivät ole talon sisällä, sekä I12a aivan oikea ylänurkka, sekä I11b,I11d ja I12b,sekä J12a yläreunan kolmannes, ja J11c,J11d'; the edges and I12a's corner sized by the size rule he confirmed for edges and corners (callouts.toml header). Named porch, the first of his two names, as the guide's PORCH. Broad: it yields to every earlier part it overlaps, taking what short boost leaves ('Shortissa on myös boost alue'). Junction basis: holds positions of TopofMid"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 7, his words: 'Porch eli short on I10c ja I10d ruudun alareunat,I11a ja I11c oikeat puoliskot, jotka eivät ole talon sisällä, sekä I12a aivan oikea ylänurkka, sekä I11b,I11d ja I12b,sekä J12a yläreunan kolmannes, ja J11c,J11d'; the edges and I12a's corner sized by the size rule he confirmed for edges and corners (callouts.toml header). Named porch, the first of his two names, as the guide's PORCH. Broad: it yields to every earlier part it overlaps, taking what short boost leaves ('Shortissa on myös boost alue'). Since Story 4.28 BombsiteA's and BombsiteB's splits read this table too (the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'), #1), and porch takes 161 BombsiteA positions, his short on the A site; truck, inside short by his words of 2026-10-02, comes before it. Junction basis: holds positions of TopofMid, BombsiteA"
 
 [de_inferno.BombsiteA]
 callout = "a site"
@@ -2233,6 +2404,21 @@ neighbours = 7
 confidence = "stated"
 source = "reittimalli-inferno-2026-09-24.md section 1: 'A sitelle'"
 
+[de_inferno.BombsiteA.split]
+image = "kartta06_sivu6_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [99.78908959436282, 99.28889365654648]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+parts_from = "Banana"
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_inferno-BombsiteA.png and de_inferno-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_inferno.Banana.split], checked float-equal (inferno-taulukot-2026-10-02.md section 2.1), so every split of de_inferno is on one grid. No floor cut (inferno-taulukot-2026-10-02.md section 2.2): the places stacked in one half-cell are one place over another, told apart by height bands, so there is no zmin or zmax. His answer of 2026-10-02 is vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', read as tables in inferno-taulukot-2026-10-02.md and built by the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. The parts are [de_inferno.Banana.split]'s, the one Inferno table (parts_from), so his earlier site answers stand where his words of 2026-10-02 are silent, by his own opening, his words: 'Tämän mielestäni kävin aika tarkasti aiemmin jo lävitse' -- cross, ct, ct boost and grill/pool of 2026-09-28 were written for BombsiteB's cells, porch, balcony and short boost for BombsiteA's; this split renames only BombsiteA's positions. NOT BUILT: headshot kulma. In his words: 'tyypillisesti siinä pidetään balconyä headshot kulmasta' -- a way of holding, not a place. His places on this split, from his quoted words: truck, ykkös boksi, headshot boksi, coldzera boksi, takanurkka, longbox, default laatikko, moto, pit, balcony, headshot kulma."
+
+[de_inferno.BombsiteA.split.fit]
+sx = 0.234797857869089
+sy = 0.23362092625069758
+bx = 514.2199095575344
+by = 1079.122363375169
+
 [de_inferno.BombsiteB]
 callout = "b site"
 junction = true
@@ -2240,6 +2426,21 @@ junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bo
 neighbours = 3
 confidence = "stated"
 source = "reittimalli-inferno-2026-09-24.md section 1: 'B site'"
+
+[de_inferno.BombsiteB.split]
+image = "kartta06_sivu6_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [99.78908959436282, 99.28889365654648]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+parts_from = "Banana"
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_inferno-BombsiteA.png and de_inferno-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_inferno.Banana.split], checked float-equal (inferno-taulukot-2026-10-02.md section 2.1), so every split of de_inferno is on one grid. No floor cut (inferno-taulukot-2026-10-02.md section 2.2): the places stacked in one half-cell are one place over another, told apart by height bands, so there is no zmin or zmax. His answer of 2026-10-02 is vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', read as tables in inferno-taulukot-2026-10-02.md and built by the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. The parts are [de_inferno.Banana.split]'s, the one Inferno table (parts_from), so his earlier site answers stand where his words of 2026-10-02 are silent, by his own opening, his words: 'Tämän mielestäni kävin aika tarkasti aiemmin jo lävitse' -- cross, ct, ct boost and grill/pool of 2026-09-28 were written for BombsiteB's cells, porch, balcony and short boost for BombsiteA's; this split renames only BombsiteB's positions. NOT BUILT: pilari. In his words: 'siinä on yksi pilari myös jonka takana voi olla osittain piilossa' -- a hiding spot with no callout (spec 4.28 decision 4), and his corners do not meet at one place (inferno-taulukot-2026-10-02.md ambiguity 8). His places on this split, from his quoted words: ykkönen, kakkonen, fountain, coffin, uudet, dark, ruins, ct boost, puolimuuri, pilari."
+
+[de_inferno.BombsiteB.split.fit]
+sx = 0.234797857869089
+sy = 0.23362092625069758
+bx = 514.2199095575344
+by = 1079.122363375169
 
 [de_inferno.Bridge]
 callout = "t talo"
@@ -2293,6 +2494,27 @@ neighbours = 3
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_inferno table: Pit = pit"
 
+[de_inferno.Pit.split]
+image = "kartta06_sivu6_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [99.78908959436282, 99.28889365654648]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_inferno-BombsiteA.png and de_inferno-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_inferno.Banana.split], checked float-equal (inferno-taulukot-2026-10-02.md section 2.1), so every split of de_inferno is on one grid. No floor cut (inferno-taulukot-2026-10-02.md section 2.2): the places stacked in one half-cell are one place over another, told apart by height bands, so there is no zmin or zmax. His answer of 2026-10-02 is vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', read as tables in inferno-taulukot-2026-10-02.md and built by the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. A table of its own: Pit is transit and cannot read the junctions' one table. His places on this split, from his quoted words: pit, minipit."
+
+[de_inferno.Pit.split.fit]
+sx = 0.234797857869089
+sy = 0.23362092625069758
+bx = 514.2199095575344
+by = 1079.122363375169
+
+[[de_inferno.Pit.split.parts]]
+callout = "minipit"
+cells = ["K12a"]
+junction = false
+confidence = "inferred"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Tästä jos jatkaa pit:n puolelle siinä balconyn alla on se minipit, ja pit on hieman alempana kuin site tai short' and his words: 'minipittiä rajaa myös pieni muuri K12a ruudussa, jotta jos siellä on kyykyssä ei siteltä näe siellä olevaa pelaajaa'; earlier, reittimalli-inferno-2026-09-24.md section 1: 'minipit joka on suoraan balconyn alla'. He gives minipit no half-cell of its own: K12a whole is the lead's default for a question sent to him (inferno-taulukot-2026-10-02.md ambiguity 23), so it is inferred. On Pit's split, because one callout has one junction and Pit holds most of its positions (19, against BombsiteA's 17, which stay a site). The wall has no name and is not a place. It takes 19 Pit positions, z 97 to 180. Junction basis: holds positions of Pit"
+
 [de_inferno.Quad]
 callout = "quad"
 junction = false
@@ -2307,6 +2529,30 @@ neighbours = 3
 confidence = "stated"
 source = "reittimalli-inferno-2026-09-24.md 4.4: Ruins = the guide's CONSTRUCTION; 'they mostly say ruins'"
 note = "reittimalli-inferno-2026-09-24.md 4.4, his words: 'Ruins ei ole kuten hell nukessa' -- the junction is a place beside it that neither vocabulary separates."
+
+[de_inferno.Ruins.split]
+image = "kartta06_sivu6_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [99.78908959436282, 99.28889365654648]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_inferno-BombsiteA.png and de_inferno-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_inferno.Banana.split], checked float-equal (inferno-taulukot-2026-10-02.md section 2.1), so every split of de_inferno is on one grid. No floor cut (inferno-taulukot-2026-10-02.md section 2.2): the places stacked in one half-cell are one place over another, told apart by height bands, so there is no zmin or zmax. His answer of 2026-10-02 is vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', read as tables in inferno-taulukot-2026-10-02.md and built by the lead's decisions on inferno-taulukot-2026-10-02.md (spec-4-28-inferno-sites.md, section 'Lead decisions on inferno-taulukot-2026-10-02.md (2026-10-02)'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. A table of its own: Ruins is transit and cannot read the junctions' one table. NOT BUILT: sandbag. In his words: 'Ruins alueella on vielä I4a ruudun yläreunassa yksi sandbag jonka päälle pääsee mutta sen taakse ei pääse' -- no name of its own (sandbags is banana's place), and no live tick lies in I4a's top edge. His places on this split, from his quoted words: ruins, puhujakoroke, sandbag."
+
+[de_inferno.Ruins.split.fit]
+sx = 0.234797857869089
+sy = 0.23362092625069758
+bx = 514.2199095575344
+by = 1079.122363375169
+
+[[de_inferno.Ruins.split.parts]]
+callout = "puhujakoroke"
+regions = [
+  { cell = "H4a", x = [0.5, 1.0], y = [0.0, 0.5], words = "H4a oikea ylänurkka" },
+  { cell = "G4b", x = [0.0, 0.5], y = [0.0, 0.5], words = "hieman G4b ruudun vasemman ylänurkan puolella" },
+]
+junction = false
+confidence = "stated"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'H4a oikea ylänurkka ja hieman G4b ruudun vasemman ylänurkan puolella on myös puhujakoroke jonka taakse pääsee piiloon'; the corners sized by the size rule he confirmed for edges and corners (callouts.toml header), as written. The guide draws a light rectangle across H4a's top-left and G4b's top-right, the mirror of his words, which would hold 4; which side is a question sent to him (inferno-taulukot-2026-10-02.md ambiguity 13). The stairs in H4a ('lyhyet portaat ruudussa H4a ylöspäin kohti G4b ruutua') are no place of their own. It takes 1 Ruins position. Junction basis: holds positions of Ruins"
 
 [de_inferno.SecondMid]
 callout = "second mid"
