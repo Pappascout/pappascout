@@ -2588,20 +2588,41 @@ def test_coldzera_boksi_is_a_box_of_one_half_cell_on_j10s_crossing() -> None:
         assert _named_at(split, cell, *outside) is None, cell
 
 
+#: What the three coarse Inferno splits inherit by the nearest rule, as
+#: measured on Story 4.28's table and re-pinned by running (the architect
+#: review): how many unnamed half-cells take each callout, and a digest of
+#: the whole map, half-cell by half-cell, so two cells that swap names fail
+#: here too. Banana's split source records the change Story 4.28 made.
+_INFERNO_INHERITED = {
+    "alabanaani": 4, "alamidi": 3, "apartments": 1, "auto": 8, "back alley": 15,
+    "banaani": 3, "boiler": 2, "broom": 2, "close/brackets": 8, "cross": 2,
+    "ct": 10, "ct boost": 1, "cubby": 7, "dark": 98, "dark stairs": 8,
+    "fountain": 10, "kitchen": 8, "logit": 62, "long": 58, "partsikäytävä": 9,
+    "pit": 80, "porch": 8, "puolimuuri": 2, "ruins": 66, "sandbags": 10,
+    "second mid": 64, "secondin kulma": 4, "t apartments": 28, "t ramp": 2,
+    "t-aps ovi": 1, "tree": 96, "window": 1,
+}
+_INFERNO_INHERITED_DIGEST = "30c655891023fb03"
+
+
 def test_the_coarse_inferno_splits_inherit_the_sites_names_by_the_nearest_rule() -> None:
-    """Review round 1 (#3): the nine whole half-cells Story 4.28 added change
-    what Banana's, Apartments' and TopofMid's unnamed half-cells inherit --
-    some now inherit transit names. Measured, no live tick, death or event
-    moves by it; pinned so that the next change to the nearest map shows up
-    here and does not slip through."""
+    """Review round 1 (#3) and the architect review: the nine whole
+    half-cells Story 4.28 added change what Banana's, Apartments' and
+    TopofMid's unnamed half-cells inherit -- some now inherit transit names
+    (pit, ruins). Measured, no live tick, death or event moves by it. The map
+    itself is pinned, so a part moved to another half-cell changes it here
+    even where the number of inherited half-cells stays the same."""
+    import hashlib
+    from collections import Counter
+
     table = _inferno()
     for area in ("Banana", "Apartments", "TopofMid"):
         inherited = table[area].split.inherited
-        assert len(inherited) == 681, area
+        assert dict(Counter(inherited.values())) == _INFERNO_INHERITED, area
+        digest = hashlib.sha256(
+            "\n".join(f"{k}={v}" for k, v in sorted(inherited.items())).encode("utf-8")
+        ).hexdigest()[:16]
+        assert digest == _INFERNO_INHERITED_DIGEST, area
         assert (inherited["K12a"], inherited["H4a"], inherited["F4c"]) == (
             "pit", "ruins", "dark"
         ), area
-        assert not {"F4a", "F5b", "G5a", "G3b", "G3d", "K12b", "L12a", "L12c", "K12d"} & set(
-            inherited
-        ), area
-    assert "254 inherited half-cells change callout" in table["Banana"].split.source

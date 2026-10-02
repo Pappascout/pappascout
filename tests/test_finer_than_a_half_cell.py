@@ -482,6 +482,8 @@ def test_every_carried_band_is_carried_to_his_own_half_cells() -> None:
                 if not cells:
                     continue
                 found[(map_name, area, part.callout)] = cells
+                # The docstring's claim, asserted (the architect review).
+                assert part.confidence != "inferred", part.callout
                 banded = {r.cell for r in part.regions if r.z is not None}
                 assert cells <= banded, (part.callout, cells)
                 written = {
@@ -991,37 +993,75 @@ def test_the_parts_read_off_the_guide_picture_are_a_closed_set() -> None:
     assert found == _GUIDE_PICTURE
 
 
-#: The areas a junction_source says a part holds positions of, where it
-#: says so in the basis's own form (review round 1, #19).
-_SOURCE_HOLDS = re.compile(r"^holds positions of ([A-Z]\w*(?:(?:, | and )[A-Z]\w*)*)")
+#: The structured forms a junction_source and a basis share (review round
+#: 1, #19, and the architect review), each read to what it names: the split
+#: areas it holds ("A, B" or "A and B"), the game area its region lies in
+#: with the live-tick counts, the area it is the same place as, or the part
+#: it lies inside. The guide picture's form is read from the header.
+_FORMS = (
+    ("holds", re.compile(r"^holds positions of ([A-Z]\w*(?:(?:, | and )[A-Z]\w*)*)")),
+    ("lies", re.compile(
+        r"^holds none of the split area's positions; its region lies in the game's "
+        r"(\w+) \((\d+) of the (\d+) live ticks"
+    )),
+    ("same", re.compile(r"^the same place as the game's (\w+)")),
+    ("inside", re.compile(r"^inside (.+?)(?: \('[^']*'\))?, whose basis it shares")),
+)
+
+
+def _reading(text: str) -> tuple | None:
+    """The structured form a junction_source or basis is written in, and
+    what it names; ``None`` for free prose."""
+    guide = _guide_picture().search(text)
+    if guide:
+        return ("guide", guide[1])
+    for form, pattern in _FORMS:
+        found = pattern.match(text)
+        if found:
+            if form == "holds":
+                return (form, frozenset(re.split(", | and ", found[1])))
+            return (form, found.groups())
+    return None
+
+
+#: How many parts of each registered split carry a junction_source in a
+#: structured form, re-pinned by running: a pattern that stops matching
+#: drops a count and fails here.
+_SOURCE_FORMS_CHECKED = {
+    "de_ancient.Alley": 0, "de_ancient.BombsiteA": 9, "de_ancient.BombsiteB": 5,
+    "de_ancient.SideEntrance": 1, "de_ancient.TSideLower": 1, "de_anubis": 4,
+    "de_dust2": 7, "de_dust2.ARamp": 1, "de_dust2.BDoors": 3, "de_dust2.BombsiteA": 2,
+    "de_dust2.BombsiteB": 9, "de_dust2.ExtendedA": 1, "de_dust2.LongA": 2,
+    "de_dust2.MidDoors": 2, "de_inferno": 26, "de_inferno.Pit": 0,
+    "de_inferno.Ruins": 0, "de_nuke": 2, "de_nuke.BombsiteB": 1,
+    "de_nuke.Observation": 0, "de_nuke.Ramp": 0, "de_nuke.Tunnels": 0,
+}
 
 
 @pytest.mark.parametrize("key", sorted(_PART_SPLITS))
 def test_a_junction_source_in_the_basis_form_names_the_basis_areas(key: str) -> None:
-    """Review round 1 (#19): a junction_source that states what the part
-    holds, or the guide picture's area, in the basis's own form, names the
-    same areas as the part's basis -- so a junction_source rewritten apart
-    from its basis fails here. The basis itself is held to the archive
-    (test_every_stated_junction_basis_is_what_the_archive_shows)."""
+    """Review round 1 (#19) and the architect review: a junction_source in
+    one of the structured forms (:data:`_FORMS`, and the guide picture's)
+    names what the part's basis names, in the same form -- so a
+    junction_source rewritten apart from its basis fails here. The basis
+    itself is held to the archive
+    (test_every_stated_junction_basis_is_what_the_archive_shows).
+
+    **Free prose is not checked**, by form: *"the whole <Area> was a junction
+    before the split ..."* (a split never removes its area's junction),
+    *"a bomb site (...): the part holds positions of <Area>"* (Nuke's lower
+    floor), *"his name for the whole of <Area> ..."*, and a junction_source
+    that quotes his words or a document (*"his words '...'"*,
+    *"alueomistus-pohja ..."*, *"vastaus-...md section ..."*)."""
     table = _table()[_map_of(key)]
     checked = 0
     for part in table[_PART_SPLITS[key][0]].split.parts:
-        source = part.junction_source or ""
-        basis = _stated_basis(part)
-        holds = _SOURCE_HOLDS.match(source)
-        if holds:
-            stated = re.match(r"holds positions of ([A-Za-z, ]+)", basis)
-            assert stated, (part.callout, basis)
-            named = set(re.split(", | and ", holds[1]))
-            assert named == set(stated[1].split(", ")), part.callout
-            checked += 1
-        read = _guide_picture().search(source)
-        if read:
-            assert _guide_picture().search(basis)[1] == read[1], part.callout
-            checked += 1
-    if key == "de_inferno":
-        # 15 parts state their holdings so, 3 the guide picture's area.
-        assert checked == 18, checked
+        read = _reading(part.junction_source or "")
+        if read is None:
+            continue
+        assert read == _reading(_stated_basis(part)), (part.callout, read)
+        checked += 1
+    assert checked == _SOURCE_FORMS_CHECKED[key], checked
 
 
 def test_the_parts_his_words_make_junctions_are_a_closed_set() -> None:
@@ -1284,6 +1324,30 @@ def test_every_height_band_passes_the_band_rule_at_its_largest_gap(
                 assert f"is the {side} level" in part.source, (part.callout, side)
     assert edges, key
     by_callout = {p.callout: p for p in split.parts}
+    # A BAND CARRIED FROM ANOTHER PART'S REGION (the header; the architect
+    # review): a part with no region of its own to measure its band on takes
+    # the edge another part's region gives, and its source names that part
+    # as the one it is measured on.
+    for part in split.parts:
+        for band in {r.z for r in part.regions if r.z is not None}:
+            if _measured_rects(split, part, band):
+                continue
+            for edge in band:
+                if edge in (INF, -INF):
+                    continue
+                givers = {
+                    other.callout
+                    for other in split.parts
+                    if other is not part
+                    and any(
+                        edge in b and _measured_rects(split, other, b)
+                        for b in {r.z for r in other.regions if r.z is not None}
+                    )
+                }
+                assert givers, (part.callout, edge)
+                assert any(f"measured on {g}'s" in part.source for g in givers), (
+                    part.callout, edge, givers
+                )
     closed_edges = {edge for band in closed.values() for edge in band}
     if closed_edges:
         # The header's clause (Story 4.24), read where it is written.

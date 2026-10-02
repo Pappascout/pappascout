@@ -2585,10 +2585,11 @@ def _shared_parts(path: Path, map_name: str, areas: dict) -> dict:
     Apartments), and one half-cell holds
     positions of two of them (I11a: Apartments and TopofMid), so the splits
     read **one** table -- written once and derived, not one copy per split
-    that may drift. Since Story 4.28 five Inferno splits read it, the one
-    junction table: Banana's, which writes it, and Apartments', TopofMid's
-    and both sites', so his site answers of 2026-09-28 reach the sites'
-    positions; Pit and Ruins, transit, write tables of their own. Ancient's
+    that may drift. Since Story 4.28 five Inferno splits read it, the table
+    of the five junction areas: Banana's, which writes it, and Apartments',
+    TopofMid's and both sites', so his site answers of 2026-09-28 reach the
+    sites' positions; it holds transit parts too, and Pit and Ruins,
+    transit areas, write tables of their own. Ancient's
     CTSpawn reads BombsiteA's table the same way (Story 4.27). Each split
     still renames only its own area's positions. The table must be written
     on a split that does not itself borrow.
@@ -2617,10 +2618,11 @@ def _shared_parts(path: Path, map_name: str, areas: dict) -> dict:
                 f"[{map_name}] whose split writes its own parts; and a split "
                 "that borrows its parts writes none of its own."
             )
-        # A shared part's junction is derived from the areas whose positions
-        # it holds (the header's rule), and every split that reads the table
-        # holds some: so every reader must agree with the lender, or one row
-        # would carry a flag derived for another kind of place.
+        # By the second clause of the header's junction rule a shared part
+        # that holds positions of several reading areas takes their common
+        # junction, and every split that reads the table can hold positions
+        # under any of its parts: so every reader must agree with the lender,
+        # or that clause has no single value for the part.
         if entry.get("junction") != source.get("junction"):
             raise SettingsError(
                 f"The callout table {path}: [{map_name}.{area}] borrows the "
