@@ -210,12 +210,21 @@ def _claimant(split: CellSplit, px: float, py: float, z: float) -> CellPart | No
 
 def _spots(split: CellSplit, part: CellPart) -> list[tuple[float, float, float]]:
     """A game position at the centre of each half-cell and region of a part,
-    at a height inside the region's band."""
+    at a height inside the region's band -- and, for a half-cell, four more an
+    eighth of the half-cell from its centre on the diagonals (Story 4.27): a
+    broad part whose half-cell's centre an earlier corner holds (brokyssä's
+    D4d, kynttilä's corner) still has spots of its own. No region edge of the
+    table lies at 3/8 or 5/8 of a half-cell, so the probes sit on none."""
     spots = [
         _at_pixel(split, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2) for b in part.boxes
     ]
+    w, h = split.cell[0] / 2, split.cell[1] / 2
     for name in part.cells:
-        spots.append(_at_pixel(split, *_centre(split, name)))
+        cx, cy = _centre(split, name)
+        spots.append(_at_pixel(split, cx, cy))
+        for dx in (-w / 8, w / 8):
+            for dy in (-h / 8, h / 8):
+                spots.append(_at_pixel(split, cx + dx, cy + dy))
     for region in part.regions:
         x0, y0, x1, y1 = _region_rect(split, region)
         x, y, z = _at_pixel(split, (x0 + x1) / 2, (y0 + y1) / 2)
@@ -959,6 +968,26 @@ _WHOLE = (0.0, 1.0)
 #: half by half corner (his own corner size, "puolet korkeudesta ja
 #: leveydestä").
 _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
+    # Story 4.27, his Ancient site answer (vastaus-ancient-sitet-2026-10-01.md).
+    # "ihan" and "aivan" (very) intensify a corner and do not quantify it, so
+    # it is the size rule's half by half (the lead's decision #3).
+    ("vasen ihan ylänurkka", ((0.0, 0.5), (0.0, 0.5))),
+    # boosti's "oikea reuna noin kolmannes" is his third, before "oikea
+    # reuna" (the size rule's quarter), which it contains.
+    ("oikea reuna noin kolmannes", ((2 / 3, 1.0), _WHOLE)),
+    ("oikea kolmannes", ((2 / 3, 1.0), _WHOLE)),
+    ("ala neljännes", (_WHOLE, (0.75, 1.0))),
+    ("alaneljännes", (_WHOLE, (0.75, 1.0))),
+    # His corners in other cases (CT:n kulma's genitive "oikean alanurkan",
+    # the plants' inessive and illative): half by half, the size rule.
+    ("oikean alanurkan", ((0.5, 1.0), (0.5, 1.0))),
+    ("oikean ylänurkan", ((0.5, 1.0), (0.0, 0.5))),
+    ("oikeassa ylänurkassa", ((0.5, 1.0), (0.0, 0.5))),
+    ("vasempaan alanurkkaan", ((0.0, 0.5), (0.5, 1.0))),
+    # ct laatikko "vasemmassa reunassa keskellä": the edge's quarter by the
+    # middle half of the height, as hiekkasäkit's "noin puolessa välissä"
+    # (the lead's decision #17).
+    ("vasemmassa reunassa keskellä", ((0.0, EDGE), (0.5 - EDGE, 0.5 + EDGE))),
     # Story 4.26, his Dust2 site answer (vastaus-dust2-sitet-2026-10-01.md).
     # Two half-cells that share an edge meet at no corner, so his "risteys"
     # of two is the edge: a quarter (EDGE) on each side of it. The I2b side
@@ -1201,7 +1230,7 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
                 r"Height band measured, not guessed \([^)]*"
                 r"(?:zbands-mitattu-2026-09-28|nuke-lobby-z-mitattu-2026-09-29"
                 r"|bsite-taulukot-2026-09-29|spec-4-25-b-site-confirmed"
-                r"|dust2-taulukot-2026-10-01)"
+                r"|dust2-taulukot-2026-10-01|ancient-taulukot-2026-10-01)"
                 r"\.md",
                 part.source,
             ), part.callout
@@ -1461,6 +1490,10 @@ _ANCIENT_PARTS = {
     "Outside": ("T-kuutio", "T-elbow", "Outside main"),
     "SideEntrance": ("ruins", "vent", "dig"),
 }
+#: The parts Story 4.27 put before them, from his site answer
+#: (vastaus-ancient-sitet-2026-10-01.md): short nurkka, his corner of short in
+#: I6d, which ruins (broad since then) yields.
+_ANCIENT_PARTS_4_27 = {"SideEntrance": ("short nurkka",)}
 
 
 def test_ancient_splits_name_his_places_and_his_two_confirmed_readings() -> None:
@@ -1470,10 +1503,15 @@ def test_ancient_splits_name_his_places_and_his_two_confirmed_readings() -> None
     were ``inferred`` until he confirmed them on 2026-09-28 (Story 4.20);
     now every part is ``stated``."""
     table = _ancient()
-    parts = [p for area in _ANCIENT_PARTS for p in table[area].split.parts]
+    later = {n for names in _ANCIENT_PARTS_4_27.values() for n in names}
+    parts = [
+        p for area in _ANCIENT_PARTS for p in table[area].split.parts
+        if p.callout not in later
+    ]
     for area, names in _ANCIENT_PARTS.items():
         assert [p.callout for p in table[area].split.parts] == [
-            " ".join(n.split()).lower() for n in names
+            " ".join(n.split()).lower()
+            for n in (*_ANCIENT_PARTS_4_27.get(area, ()), *names)
         ], area
     for part in parts:
         assert "puoliruudut-vastaus-2026-09-27.md" in part.source
@@ -2181,3 +2219,166 @@ def test_every_dust2_part_carries_the_confidence_its_reading_earns() -> None:
         for part in entry.split.parts if entry.split else []:
             found.setdefault(part.confidence, set()).add(part.callout)
     assert found == _DUST2_CONFIDENCE
+
+
+# -- Story 4.27: Ancient's sites -----------------------------------------------
+
+
+def test_ancients_site_splits_keep_the_area_for_the_rest_and_name_his_places() -> None:
+    """ancient-taulukot-2026-10-01.md section 5 and the lead's decisions:
+    every new split is the not-coarse form -- the area keeps its own callout
+    for the rest and nothing is inherited -- with his places in lookup order;
+    CTSpawn reads BombsiteA's table, because his temple and his elbow hold
+    positions of both."""
+    table = _ancient()
+    expected = {
+        "BombsiteA": ("a site", [
+            "ct:n kulma", "kynttilä", "ct", "alttari", "big box", "brokyssä",
+            "boosti", "siten takana", "site boksit",
+        ]),
+        "BombsiteB": ("b site", [
+            "site pillar", "default plant", "long/ramp plant", "long eka kulma",
+            "ramp",
+        ]),
+        "TSideLower": ("lower b long", ["cubby", "ramp"]),
+        "Alley": ("alley", ["ct laatikko", "long toka kulma"]),
+    }
+    for area, (callout, parts) in expected.items():
+        entry = table[area]
+        assert (entry.callout, entry.coarse) == (callout, False), area
+        assert [p.callout for p in entry.split.parts] == parts, area
+        assert entry.split.inherited == {}, area
+    assert table["CTSpawn"].split.parts == table["BombsiteA"].split.parts
+    assert (table["CTSpawn"].callout, table["CTSpawn"].coarse) == ("ct spawn", False)
+    assert {a for a, e in table.items() if e.split is not None} == {
+        *expected, "CTSpawn", *_ANCIENT_PARTS
+    }
+
+
+def test_the_temple_is_kynttila_and_the_ground_below_it_brokyssa() -> None:
+    """His temple: E4a, E4c and E4d whole and three corners are kynttilä on
+    BombsiteA's and CTSpawn's splits alike; D4d's rest is brokyssä, the
+    ground he drops to; E4d's bottom-right corner and E5b's top-right are
+    CT:n kulma, carved out of his CT, which keeps its four fractions; G4c
+    and G5a's top edge are ct spawn, as he says."""
+    table = _ancient()
+    for area in ("BombsiteA", "CTSpawn"):
+        split = table[area].split
+        for cell in ("E4a", "E4c"):
+            assert _named_at(split, cell, 0.5, 0.5) == "kynttilä", (area, cell)
+        assert _named_at(split, "E4d", 0.2, 0.2) == "kynttilä", area
+        assert _named_at(split, "E4d", 0.8, 0.8) == "ct:n kulma", area
+        assert _named_at(split, "E5b", 0.2, 0.2) == "kynttilä", area
+        assert _named_at(split, "E5b", 0.8, 0.2) == "ct:n kulma", area
+        assert _named_at(split, "E5a", 0.8, 0.2) == "kynttilä", area
+        assert _named_at(split, "E5a", 0.2, 0.2) is None, area
+        assert _named_at(split, "D4d", 0.8, 0.8) == "kynttilä", area
+        for fx, fy in ((0.2, 0.2), (0.8, 0.2), (0.2, 0.8)):
+            assert _named_at(split, "D4d", fx, fy) == "brokyssä", (area, fx, fy)
+        assert _named_at(split, "E4b", 0.5, 0.5) is None, area
+        assert _named_at(split, "F5a", 0.9, 0.5) == "ct", area
+        assert _named_at(split, "F5a", 0.5, 0.5) is None, area
+        for cell in ("F4c", "F4d"):
+            assert _named_at(split, cell, 0.5, 0.9) == "ct", (area, cell)
+            assert _named_at(split, cell, 0.5, 0.7) is None, (area, cell)
+        assert _named_at(split, "F5b", 0.5, 0.4) == "ct", area
+        assert _named_at(split, "F5b", 0.5, 0.6) is None, area
+        assert _named_at(split, "G4c", 0.5, 0.5) is None, area
+        assert _named_at(split, "G5a", 0.5, 0.1) is None, area
+    parts = {p.callout: p for p in table["BombsiteA"].split.parts}
+    assert parts["kynttilä"].broad and parts["brokyssä"].broad
+    assert not parts["ct"].broad and not parts["ct:n kulma"].broad
+
+
+def test_siten_takana_is_e5ds_right_third_and_also_headshot_kulma() -> None:
+    """His answers 2 and 3 to the lead's four questions: siten takana is
+    E5d's right third, and headshot kulma is the same place, so one callout
+    carries both names; site boksit keeps the rest of E5d, and E5b's bottom
+    edge is the site ("sitä voi vaan kutsua siteksi")."""
+    split = _ancient()["BombsiteA"].split
+    parts = {p.callout: p for p in split.parts}
+    assert "headshot kulma" not in parts
+    assert "headshot kulma" in parts["siten takana"].source
+    assert "NOT BUILT: headshot kulma." in split.source
+    assert _named_at(split, "E5d", 0.9, 0.5) == "siten takana"
+    assert _named_at(split, "E5d", 0.5, 0.5) == "site boksit"
+    assert _named_at(split, "E5d", 0.1, 0.9) == "site boksit"
+    assert _named_at(split, "E5b", 0.5, 0.9) is None
+    assert parts["site boksit"].broad
+
+
+def test_boosti_is_his_high_level_only() -> None:
+    """His answer 1: "Vain korkea taso". boosti is the right third of D6a
+    and of D6b above the measured edge; the ground and the head-height ticks
+    beneath it, and the rest of the two half-cells, keep a site."""
+    split = _ancient()["BombsiteA"].split
+    boosti = next(p for p in split.parts if p.callout == "boosti")
+    (edge,) = {r.z[0] for r in boosti.regions}
+    assert {r.z[1] for r in boosti.regions} == {float("inf")}
+    assert boosti.confidence == "stated"
+    for cell in ("D6a", "D6b"):
+        assert _named_at(split, cell, 0.9, 0.5, edge) == "boosti", cell
+        assert _named_at(split, cell, 0.9, 0.5, edge - 0.01) is None, cell
+        assert _named_at(split, cell, 0.5, 0.5, edge + 30) is None, cell
+
+
+def test_ramp_is_his_six_cells_and_the_b_long_corners_take_one_junction() -> None:
+    """His "K8a,K8b,K8c,K8d,K9b,K9a ovat ramppia" is one region on BombsiteB's
+    split and TSideLower's, a junction as the game's Ramp; cubby is J8c,
+    transit as lower b long; long toka kulma holds Alley's positions and is
+    built there only, transit, while long eka kulma is BombsiteB's."""
+    table = _ancient()
+    for area in ("BombsiteB", "TSideLower"):
+        split = table[area].split
+        ramp = next(p for p in split.parts if p.callout == "ramp")
+        assert ramp.cells == ["K8a", "K8b", "K8c", "K8d", "K9b", "K9a"], area
+        assert ramp.junction and table["Ramp"].junction, area
+        for cell in ramp.cells:
+            assert _named_at(split, cell, 0.5, 0.5) == "ramp", (area, cell)
+    lower = table["TSideLower"].split
+    assert _named_at(lower, "J8c", 0.5, 0.5) == "cubby"
+    assert _named_at(lower, "J9a", 0.5, 0.5) is None
+    cubby = next(p for p in lower.parts if p.callout == "cubby")
+    assert not cubby.junction and not table["TSideLower"].junction
+    bsite, alley = table["BombsiteB"].split, table["Alley"].split
+    assert "long toka kulma" not in {p.callout for p in bsite.parts}
+    toka = next(p for p in alley.parts if p.callout == "long toka kulma")
+    assert not toka.junction
+    assert _named_at(alley, "K6b", 0.8, 0.8) == "long toka kulma"
+    assert _named_at(bsite, "K6b", 0.8, 0.8) is None
+    for cell, fx, fy in (("K7b", 0.2, 0.2), ("K6d", 0.2, 0.8), ("K6c", 0.8, 0.8)):
+        assert _named_at(bsite, cell, fx, fy) == "long eka kulma", cell
+    assert _named_at(bsite, "J7a", 0.8, 0.8) == "site pillar"
+    assert _named_at(bsite, "J7c", 0.8, 0.2) == "default plant"
+    assert _named_at(bsite, "J7b", 0.2, 0.8) == "long/ramp plant"
+    assert _named_at(bsite, "J7d", 0.2, 0.2) is None
+    assert _named_at(alley, "I5d", 0.1, 0.5) == "ct laatikko"
+    assert _named_at(alley, "I5d", 0.8, 0.8) is None  # his AWP spot: short
+    side = table["SideEntrance"].split
+    assert _named_at(side, "I6d", 0.8, 0.2) == "short nurkka"
+    assert _named_at(side, "I6d", 0.2, 0.8) == "ruins"
+
+
+#: Every Ancient part's confidence (Story 4.27, as Story 4.26's D14): every
+#: reading is his or his answers settled it, so every part is stated; pinned
+#: so a confidence flipped in the table fails by name.
+_ANCIENT_CONFIDENCE = {
+    "stated": {
+        # Story 4.18.
+        "a main", "hall", "hallleft", "t-kuutio", "t-elbow", "outside main",
+        "ruins", "vent", "dig",
+        # Story 4.27.
+        "ct:n kulma", "kynttilä", "ct", "alttari", "big box", "brokyssä",
+        "boosti", "siten takana", "site boksit", "site pillar", "default plant",
+        "long/ramp plant", "long eka kulma", "ramp", "cubby", "ct laatikko",
+        "long toka kulma", "short nurkka",
+    },
+}
+
+
+def test_every_ancient_part_carries_the_confidence_its_reading_earns() -> None:
+    found = {}
+    for entry in _ancient().values():
+        for part in entry.split.parts if entry.split else []:
+            found.setdefault(part.confidence, set()).add(part.callout)
+    assert found == _ANCIENT_CONFIDENCE

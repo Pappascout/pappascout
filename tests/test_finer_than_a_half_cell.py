@@ -392,6 +392,14 @@ _PART_SPLITS = {
             "MidDoors",
         )
     },
+    # Story 4.27: Ancient's sites on MainHall's grid
+    # (ancient-taulukot-2026-10-01.md section 5). CTSpawn reads BombsiteA's
+    # table (parts_from): his temple and his elbow hold both areas' positions.
+    "de_ancient.BombsiteA": ("BombsiteA", "CTSpawn"),
+    **{
+        f"de_ancient.{area}": (area,)
+        for area in ("BombsiteB", "TSideLower", "Alley")
+    },
 }
 
 
@@ -496,7 +504,12 @@ def test_the_three_inferno_splits_read_one_table() -> None:
 @pytest.mark.parametrize(
     ("map_name", "area"),
     [(m, a) for m, areas in _NEW_SPLITS.items() for a in areas]
-    + [tuple(key.split(".")) for key in _PART_SPLITS if key.startswith("de_dust2.")],
+    + [
+        tuple(key.split("."))
+        for key in _PART_SPLITS
+        if key.startswith(("de_dust2.", "de_ancient."))
+    ]
+    + [("de_ancient", "CTSpawn")],
 )
 def test_the_new_grids_are_grid2s_and_cover_the_image(map_name: str, area: str) -> None:
     """As Ancient's (Story 4.18): origin (0, 0), one cell of 425 game units
@@ -556,6 +569,8 @@ _MERGES = {
         # Review round 1 (item 18): long below ct cross on UnderA's split.
         "long a": "LongA",
     },
+    # Story 4.27: his ramppia, on BombsiteB's split and TSideLower's.
+    "de_ancient": {"ramp": "Ramp"},
 }
 
 
@@ -1066,6 +1081,13 @@ _BANDED = {
     },
     "de_dust2.BDoors": {("window", "C2b"), ("window", "C2d")},
     "de_dust2.MidDoors": set(),
+    # Story 4.27: boosti, his high level only ("Vain korkea taso"), is the
+    # one Ancient site place that passes the rule
+    # (ancient-taulukot-2026-10-01.md section 3).
+    "de_ancient.BombsiteA": {("boosti", "D6a"), ("boosti", "D6b")},
+    "de_ancient.BombsiteB": set(),
+    "de_ancient.TSideLower": set(),
+    "de_ancient.Alley": set(),
 }
 
 
@@ -1252,6 +1274,18 @@ _ONE_LEVEL = {
     # Review round 1 (A5): goose's floor against the stairs and the site.
     "goose in I2b": ("de_dust2.BombsiteA", "goose", ["I2b"], (0.0, 1.0)),
     "goose in I2a": ("de_dust2.BombsiteA", "goose", ["I2a"], (0.0, 1.0)),
+    # Story 4.27: the Ancient places he names by height that the rule
+    # refuses (ancient-taulukot-2026-10-01.md section 3): the temple floor
+    # against the ground he drops to, the site boxes, and the box at the
+    # ramp's foot.
+    "kynttilä's temple floor": ("de_ancient.BombsiteA", "kynttilä", None, None),
+    "brokyssä below the temple in D4d": (
+        "de_ancient.BombsiteA", "brokyssä", None, None
+    ),
+    "the site boxes in E5d": ("de_ancient.BombsiteA", "site boksit", None, None),
+    "the box at the ramp's foot": (
+        "de_ancient.BombsiteB", "ramp", ["K9a"], (0.0, 1.0)
+    ),
 }
 
 

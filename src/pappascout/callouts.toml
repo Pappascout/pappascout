@@ -2339,6 +2339,39 @@ junction = false
 neighbours = 4
 confidence = "stated"
 source = "the first route model (reittimalli-<owner>.md) Ancient CT side, his words: 'Jos ct pelaaja aloittaa menemällä alleylle'; calloutit.md guide: ALLEY"
+note = "Since Story 4.27 the split below names his finer places inside it; every other position, and every rule row, stays alley."
+
+[de_ancient.Alley.split]
+image = "kartta08_sivu8_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [101.60768143832684, 100.35896711051464]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_ancient-BombsiteA.png and de_ancient-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_ancient.MainHall.split], checked float-equal (ancient-taulukot-2026-10-01.md section 2.1), so every split of de_ancient is on one grid. No floor cut (ancient-taulukot-2026-10-01.md section 2.2): no half-cell of the map holds two game areas whose median heights differ by 80 units or more, and the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-01 is vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', with his answers to the lead's four questions (vastaus-ancient-sitet-2026-10-01.md section 'His answers to the lead's four questions (2026-10-01, late evening)'), read as tables in ancient-taulukot-2026-10-01.md and built by the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. alley is the area's own callout (vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'tähän usein heitetään smoke jos halutaan savuttaa rotate ja jos saadaan long ja short haltuun ja siihen savu on vaikea CT:stä ja midistä rotatea sinne koska ainoa sisäänkäynti on savutettu ja sitä voidaan pitää longilta, tai shortista tai heti savun takaa alleyllä.'), so the parts are finer places inside it. NOT BUILT: awp. His AWP spot, his words: 'Ruudusta I5d oikea alanurkka myös juuri ja juuri voi pitää awp aseella esimerkiksi rampin yläpäätä.', is in short, he answered (vastaus-ancient-sitet-2026-10-01.md section 'His answers to the lead's four questions (2026-10-01, late evening)', his words: 'Ei tarvitse se on shortissa'), and has no name of its own. His places on this split, from his quoted words: alley, ct laatikko, long toka kulma, awp."
+
+[de_ancient.Alley.split.fit]
+sx = 0.2390768975019455
+sy = 0.2361387461423874
+bx = 770.9160766601562
+by = 662.82958984375
+
+[[de_ancient.Alley.split.parts]]
+callout = "ct laatikko"
+regions = [
+  { cell = "I5d", x = [0.0, 0.25], y = [0.25, 0.75], words = "laatikko ruudun I5d vasemmassa reunassa keskellä" },
+]
+junction = false
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'siellä on myös laatikko ruudun I5d vasemmassa reunassa keskellä. Tuo laatikko on CT laatikko' and his words: 'tähän usein heitetään smoke jos halutaan savuttaa rotate ja jos saadaan long ja short haltuun ja siihen savu on vaikea CT:stä ja midistä rotatea sinne koska ainoa sisäänkäynti on savutettu ja sitä voidaan pitää longilta, tai shortista tai heti savun takaa alleyllä.' The box at I5d's left edge, in the middle: the left quarter, sized by the size rule he confirmed for edges and corners (callouts.toml header), by the middle half of the height (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #17). The box drawn on the guide is solid and holds no position. Junction basis: holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's Alley on the guide picture"
+
+[[de_ancient.Alley.split.parts]]
+callout = "long toka kulma"
+regions = [
+  { cell = "K6b", x = [0.5, 1.0], y = [0.5, 1.0], words = "K6b oikea alanurkka" },
+]
+junction = false
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'kun taas K6b oikea alanurkka on long toka kulma.' K6b's bottom-right corner, sized by the size rule he confirmed for edges and corners (callouts.toml header), on the back alley, his long. It holds 16 Alley positions and 3 of BombsiteB's, and one callout has one junction, so it is built here only (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #15); the 3 stay b site, a known limit. It takes 16 Alley positions (z 132 to 134). Junction basis: holds positions of Alley"
 
 [de_ancient.BombsiteA]
 callout = "a site"
@@ -2347,6 +2380,117 @@ junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bo
 neighbours = 3
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_ancient table: BombsiteA = A site"
+note = "Since Story 4.27 the split below names his finer places inside it; every other position, and every rule row, stays a site."
+
+[de_ancient.BombsiteA.split]
+image = "kartta08_sivu8_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [101.60768143832684, 100.35896711051464]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_ancient-BombsiteA.png and de_ancient-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_ancient.MainHall.split], checked float-equal (ancient-taulukot-2026-10-01.md section 2.1), so every split of de_ancient is on one grid. No floor cut (ancient-taulukot-2026-10-01.md section 2.2): no half-cell of the map holds two game areas whose median heights differ by 80 units or more, and the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-01 is vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', with his answers to the lead's four questions (vastaus-ancient-sitet-2026-10-01.md section 'His answers to the lead's four questions (2026-10-01, late evening)'), read as tables in ancient-taulukot-2026-10-01.md and built by the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. a site is his broad word for the site and the area's own callout (vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Muuten A site taitaa olla aika tasainen ja tiedossa oleva alue, vain E5d ruudussa olevat site boksit erottuvat tästä, niiden päältä kyllä harvoin pelataan, mutta ne on hyvä tietää.'), so the parts are finer places inside it. NOT BUILT: headshot kulma. It is his other name for siten takana (vastaus-ancient-sitet-2026-10-01.md section 'His answers to the lead's four questions (2026-10-01, late evening)', his words: 'Se on juurikin tuo siten takana eli E5d oikea kolmannes.'), one place, built once under siten takana. Not a part: the A main entry, his words: 'A mainista tullaan A sitelle ruudusta C6d.' -- where A main arrives on the site, not a name (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #8); MainHall's positions there are a main already. His places on this split, from his quoted words: a site, alttari, big box, kynttilä, brokyssä, boosti, site boksit, siten takana, headshot kulma, ct, ct:n kulma."
+
+[de_ancient.BombsiteA.split.fit]
+sx = 0.2390768975019455
+sy = 0.2361387461423874
+bx = 770.9160766601562
+by = 662.82958984375
+
+[[de_ancient.BombsiteA.split.parts]]
+callout = "CT:n kulma"
+regions = [
+  { cell = "E4d", x = [0.5, 1.0], y = [0.5, 1.0], words = "E4d oikean alanurkan" },
+  { cell = "E5b", x = [0.5, 1.0], y = [0.0, 0.5], words = "E5b oikean ylänurkan" },
+]
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Tuosta CT:stä tahtoisin ehkä erottaa E4d oikean alanurkan, E5b oikean ylänurkan, joka on CT:n kulma siellä voi olla piilossa niin että donitsista tai A mainista ei sinne näe, vasta kun tulee siten taakse näkee sinne.'. E4d's bottom-right corner and E5b's top-right corner, sized by the size rule he confirmed for edges and corners (callouts.toml header): half the width by half the height, carved out of his CT, which gives these two corners here and keeps the rest (decision 4 of spec-4-27-ancient-sites.md: his 'tahtoisin ehkä erottaa' is built). It takes 3 BombsiteA positions (E5b 2, E4d 1; z 58 to 61). Junction basis: holds positions of BombsiteA"
+
+[[de_ancient.BombsiteA.split.parts]]
+callout = "kynttilä"
+cells = ["E4a", "E4c", "E4d"]
+regions = [
+  { cell = "E5b", x = [0.0, 0.5], y = [0.0, 0.5], words = "E5b vasen ihan ylänurkka" },
+  { cell = "E5a", x = [0.5, 1.0], y = [0.0, 0.5], words = "E5a oikea ylänurkka" },
+  { cell = "D4d", x = [0.5, 1.0], y = [0.5, 1.0], words = "D4d aivan oikea alanurkka" },
+]
+broad = true
+junction = true
+junction_source = "holds positions of BombsiteA and CTSpawn, whose entries are junctions: a bomb site and a spawn (spec-4-13-the-route-through-his-junctions.md: bomb sites and spawns are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Tai kynttilästä, joka on temppelin sisällä, kynttilä on E4a,E4c,E4d,E5b vasen ihan ylänurkka, E5a oikea ylänurkka,E4c ja D4d aivan oikea alanurkka on kynttilää' and his words: 'mutta kun tulee ulos rakennuksesta ja tippuu hieman alemmas maan tasolle D4d ruudussa on jo brokyssä, joka on alue heti kynttilän ulkopuolella big boxin takana'. Inside the temple, the guide's TEMPLE: E4a, E4c and E4d whole (his second E4c repeats the first), and three corners, each half by half, sized by the size rule he confirmed for edges and corners (callouts.toml header): E5b's top-left, E5a's top-right and D4d's bottom-right. His 'ihan' and 'aivan' (very) intensify and do not quantify, so the corners are the size rule's (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #3). The temple floor is z 97 to 103, and the E5a and E5b corners hold only ticks on it (97 to 99). Broad: it yields to every earlier part it overlaps, so E4d's bottom-right corner is CT:n kulma's. E4b, inside the temple too, is not his kynttilä and stays a site and ct spawn (#5). On its regions it fails the band rule of the callouts.toml header (ancient-taulukot-2026-10-01.md section 3: 72 live ticks, z 52 to 128, the largest gap 22.41), so it has no band. KNOWN LIMIT (the drop in D4d's corner): the corner holds 30 positions, 24 on the temple floor and 6 at the ground, which his words make brokyssä; the rule cannot separate them (z 52 to 128, the largest gap 26.84, from the ground across the drop at 74 and 79), so they are counted as kynttilä. It takes 60 BombsiteA positions (D4d 30, E4c 19, E4a 6, E5a 3, E4d 1, E5b 1), and on CTSpawn's split it takes 11 CTSpawn positions (E4a 6, E4c 5). Junction basis: holds positions of BombsiteA, CTSpawn"
+
+[[de_ancient.BombsiteA.split.parts]]
+callout = "ct"
+regions = [
+  { cell = "F5a", x = [0.6666666666666666, 1.0], words = "F5a oikea kolmannes" },
+  { cell = "F4c", y = [0.75, 1.0], words = "F4c ala neljännes" },
+  { cell = "F4d", y = [0.75, 1.0], words = "F4d alaneljännes" },
+  { cell = "F5b", y = [0.0, 0.5], words = "F5b ylempi puolisko" },
+]
+junction = true
+junction_source = "holds positions of BombsiteA and CTSpawn, whose entries are junctions: a bomb site and a spawn (spec-4-13-the-route-through-his-junctions.md: bomb sites and spawns are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Tuo callout kuvan elbow on meille CT, kuten infernossa B sitellä on CT.' and his words: 'Se on ruudut E5b Oikea ylänurkka, E4d oikea alanurkka, F5a oikea kolmannes, F4c ala neljännes, F4d alaneljännes F5b ylempi puolisko ja G4c ja G5a yläreuna on jo ct spawnia.'. His rename of the guide's ELBOW, which he calls CT as on Inferno's B site (that ct is another map's); not ct spawn, and not Outside's T-elbow, the T side's elbow. F5a's right third, F4c's and F4d's bottom quarters and F5b's upper half, his own fractions. NOT HIS, E5b: his words give E5b's top-right corner to CT:n kulma ('Tuosta CT:stä tahtoisin ehkä erottaa'). NOT HIS, E4d: the same. NOT HIS, G4c: his words say it is already ct spawn ('on jo ct spawnia'), and the game agrees (33 of its 33 live ticks are CTSpawn). NOT HIS, G5a: its top edge, the same (14 of 14). It takes 21 BombsiteA positions (F4c 11, F5a 5, F5b 4, F4d 1), and on CTSpawn's split it takes 21 CTSpawn positions (F5b 15, F4d 6). Junction basis: holds positions of BombsiteA, CTSpawn"
+
+[[de_ancient.BombsiteA.split.parts]]
+callout = "alttari"
+cells = ["C4d", "C5b"]
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Sieltä back siteltä (kutsun alttariksi, ettei mene siten takana sekaisin, joka on site boksien takana kerron myöhemmin) saatetaan holdata tähän ruuduista C4d, C5b'. His rename of the guide's BACK SITE (Dust2's alttari is another map's), and his back site of alueomistus-pohja-2026-09-26.md de_ancient, a contact point: 'kohtauspisteitä on ... a main sekä back site'. One platform at z 75 to 87 (52 of its ticks). It takes 62 BombsiteA positions (C4d 56, C5b 6). Junction basis: holds positions of BombsiteA"
+
+[[de_ancient.BombsiteA.split.parts]]
+callout = "big box"
+regions = [
+  { cell = "D5c", x = [0.5, 1.0], y = [0.0, 0.5], words = "D5c oikea ylänurkka" },
+  { cell = "D5a", x = [0.5, 1.0], y = [0.5, 1.0], words = "D5a oikea alanurkka" },
+]
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Tai big boxilta, joka on ruutujen D5c ja D5a risteyksessä D5c oikea ylänurkka ja D5a oikea alanurkka'. His own two corners, D5c's top-right and D5a's bottom-right, each half by half, sized by the size rule he confirmed for edges and corners (callouts.toml header): the right half of the edge D5a and D5c share, half a half-cell deep on each side. The guide's BIG BOX. Nobody stands on it: its 5 live ticks are the floor at z 52 to 53. It takes 5 BombsiteA positions (D5a 4, D5c 1). Junction basis: holds positions of BombsiteA"
+
+[[de_ancient.BombsiteA.split.parts]]
+callout = "brokyssä"
+cells = ["D4d"]
+broad = true
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'mutta kun tulee ulos rakennuksesta ja tippuu hieman alemmas maan tasolle D4d ruudussa on jo brokyssä, joka on alue heti kynttilän ulkopuolella big boxin takana'. D4d, his half-cell, at the ground outside the temple, behind big box. Broad: it yields to every earlier part it overlaps, so D4d's bottom-right corner, the temple's, is kynttilä's. Against kynttilä it fails the band rule of the callouts.toml header (ancient-taulukot-2026-10-01.md section 3: D4d's 51 live ticks run from z 52 to 128 with the largest gap 22.41, the drop from the temple at 98 to 106 crossing 74 and 79), so it has no band, and kynttilä's source states the known limit. It takes 21 BombsiteA positions (z 52 to 74). Junction basis: holds positions of BombsiteA"
+
+[[de_ancient.BombsiteA.split.parts]]
+callout = "boosti"
+regions = [
+  { cell = "D6a", x = [0.6666666666666666, 1.0], z = [139.53, inf], words = "D6a ja D6b oikea reuna noin kolmannes" },
+  { cell = "D6b", x = [0.6666666666666666, 1.0], z = [139.53, inf], words = "D6b oikea reuna noin kolmannes" },
+]
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'jos menee mainista pidemmälle niin oikealla ylhäällä callout kuvassa on Tree (kutsumme sitä boostiksi), se on noin pään korkeudella oleva alue, jonne voi buustata pelaajan tai sinne voi hyppiä itse, se on ruuduissa D6a ja D6b oikea reuna noin kolmannes. Alueen tunnistaa sen korkeudesta.'; asked which level he means (ancient-taulukot-2026-10-01.md ambiguity 2), he answered, vastaus-ancient-sitet-2026-10-01.md section 'His answers to the lead's four questions (2026-10-01, late evening)', his words: 'Vain korkea taso. Sinne hypätään yhden kyltin päältä joka on lähemäpänä donitsia ruudussa D6b.' -- the high level only, jumped to from a sign in D6b, nearer the donut. His rename of the guide's TREE. The right third of D6a and of D6b: his grammar of 2026-09-28, 'I3b ja 12d oikean reunan kolmannes', gave the third to both half-cells, as he confirmed on Dust2 (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #1); with the band, D6a whole would hold the same 5 positions. Height band measured, not guessed (ancient-taulukot-2026-10-01.md section 3, the two thirds): the live ticks of the map inside the region fall in two levels, the largest gap running from 110.39 to 168.66 (58.27 units; 12 below, 5 above); the band edge 139.53 is its midpoint, to two decimals, and it meets the band rule of the callouts.toml header (the gap at least 36 units and at least 1.5 times the second-largest gap, 37.36 units from 73.03 to 110.39) (re-derived under -m archive). The upper level is the game's BombsiteA (5 of 5 ticks above), the lower the game's BombsiteA (12 of 12 below); one game area holds both, so the direction rests on his words, 'Vain korkea taso': boosti is the upper level. KNOWN LIMIT (D6c): D6c's top right holds 12 more live ticks at the high level (z 169 to 191); he does not name D6c, so they stay a site. It takes 5 BombsiteA positions (D6b 3, D6a 2; z 169 to 177). Junction basis: holds positions of BombsiteA"
+
+[[de_ancient.BombsiteA.split.parts]]
+callout = "siten takana"
+regions = [
+  { cell = "E5d", x = [0.6666666666666666, 1.0], words = "E5d oikea kolmannes" },
+]
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'siitä usein pidetään A mainia boksin takaa joka on headshot kulma eli sinusta näkyy a mainin suuntaan vain pää.'; the place he promised beside alttari ('siten takana, joka on site boksien takana kerron myöhemmin'); asked where it is (ancient-taulukot-2026-10-01.md ambiguities 6 and 7), he answered, vastaus-ancient-sitet-2026-10-01.md section 'His answers to the lead's four questions (2026-10-01, late evening)', his words: 'Siten takana on enemmänkin E5d oikea kolmannes. Silloin pelaaja on siten takana kun katsotaan A mainista päin. E5b alareuna on siten vieressä, mutta tietysti donitsista katsoen sen takana, mutta sitä voi vaan kutsua siteksi.' and, asked where headshot kulma is, his words: 'Se on juurikin tuo siten takana eli E5d oikea kolmannes.' -- one place with two names of his, so one callout: siten takana, which is also headshot kulma, the box's back seen from A main. E5d's right third, his own fraction. NOT HIS, E5b: his words make E5b's bottom edge the site ('sitä voi vaan kutsua siteksi'), so it stays a site. It takes 32 BombsiteA positions (z 53 to 66). Junction basis: holds positions of BombsiteA"
+
+[[de_ancient.BombsiteA.split.parts]]
+callout = "site boksit"
+cells = ["E5d"]
+broad = true
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Muuten A site taitaa olla aika tasainen ja tiedossa oleva alue, vain E5d ruudussa olevat site boksit erottuvat tästä, niiden päältä kyllä harvoin pelataan, mutta ne on hyvä tietää.' E5d, his half-cell, the boxes and the floor beside them. Broad: it yields to every earlier part it overlaps, so E5d's right third, behind the boxes seen from A main, is siten takana's. On the box tops it fails the band rule of the callouts.toml header (ancient-taulukot-2026-10-01.md section 3: E5d's 56 live ticks, 55 at z 52 to 86 and 1 at 139), so there is no band, as he says himself ('niiden päältä kyllä harvoin pelataan'). It takes 24 BombsiteA positions. Junction basis: holds positions of BombsiteA"
 
 [de_ancient.BombsiteB]
 callout = "b site"
@@ -2355,6 +2499,71 @@ junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bo
 neighbours = 4
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_ancient table: BombsiteB = B site"
+note = "Since Story 4.27 the split below names his finer places inside it; every other position, and every rule row, stays b site."
+
+[de_ancient.BombsiteB.split]
+image = "kartta08_sivu8_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [101.60768143832684, 100.35896711051464]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_ancient-BombsiteA.png and de_ancient-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_ancient.MainHall.split], checked float-equal (ancient-taulukot-2026-10-01.md section 2.1), so every split of de_ancient is on one grid. No floor cut (ancient-taulukot-2026-10-01.md section 2.2): no half-cell of the map holds two game areas whose median heights differ by 80 units or more, and the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-01 is vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', with his answers to the lead's four questions (vastaus-ancient-sitet-2026-10-01.md section 'His answers to the lead's four questions (2026-10-01, late evening)'), read as tables in ancient-taulukot-2026-10-01.md and built by the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. b site is his word for the site (vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'B sitellä kaikki on suurinpiirtein samalla korkeudella, mutta Ruins ja ramp ovat sellaisia missä on eri korkeuksia.') and the area's own callout, so the parts are finer places inside it. NOT BUILT: long toka kulma. It holds 16 Alley positions and 3 of BombsiteB's in K6b's corner, and one callout has one junction (Alley transit, BombsiteB a junction), so it is built on Alley's split only (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #15); the 3 stay b site, a known limit: his words: 'kun taas K6b oikea alanurkka on long toka kulma.' NOT BUILT: laatikko. His K9a box, which he gives no name, is inside his ramp (the ramp part's source). His places on this split, from his quoted words: b site, site pillar, default plant, long/ramp plant, long eka kulma, long toka kulma, ramp, laatikko."
+
+[de_ancient.BombsiteB.split.fit]
+sx = 0.2390768975019455
+sy = 0.2361387461423874
+bx = 770.9160766601562
+by = 662.82958984375
+
+[[de_ancient.BombsiteB.split.parts]]
+callout = "site pillar"
+regions = [
+  { cell = "J7a", x = [0.5, 1.0], y = [0.5, 1.0], words = "J7a oikeassa alanurkassa" },
+]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Ruudun J7a oikeassa alanurkassa näkyy tuo site pillar'. J7a's bottom-right corner, sized by the size rule he confirmed for edges and corners (callouts.toml header): the pillar drawn there on the guide; the pillar itself is solid, so the positions are beside it. It takes 12 BombsiteB positions. Junction basis: holds positions of BombsiteB"
+
+[[de_ancient.BombsiteB.split.parts]]
+callout = "default plant"
+regions = [
+  { cell = "J7c", x = [0.5, 1.0], y = [0.0, 0.5], words = "J7c oikeassa ylänurkassa" },
+]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'usein default plant on J7c oikeassa ylänurkassa ettei longilta tai shortista näe, mutta ruinsista voidaan porata seinän läpi.' J7c's top-right corner, sized by the size rule he confirmed for edges and corners (callouts.toml header), below the pillar. It takes 18 BombsiteB positions. Junction basis: holds positions of BombsiteB"
+
+[[de_ancient.BombsiteB.split.parts]]
+callout = "long/ramp plant"
+regions = [
+  { cell = "J7b", x = [0.0, 0.5], y = [0.5, 1.0], words = "J7b vasempaan alanurkkaan" },
+]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Jos long on hallussa usein long/ramp plant J7b vasempaan alanurkkaan.' J7b's bottom-left corner, sized by the size rule he confirmed for edges and corners (callouts.toml header), beside the pillar. It takes 16 BombsiteB positions. Junction basis: holds positions of BombsiteB"
+
+[[de_ancient.BombsiteB.split.parts]]
+callout = "long eka kulma"
+regions = [
+  { cell = "K7b", x = [0.0, 0.5], y = [0.0, 0.5], words = "K7b vasen ylänurkka" },
+  { cell = "K6d", x = [0.0, 0.5], y = [0.5, 1.0], words = "K6d vasen alanurkka" },
+  { cell = "K6c", x = [0.5, 1.0], y = [0.5, 1.0], words = "K6c oikea alanurkka" },
+]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'K7b vasen ylänurkka on juuri ja juuri vielä kartalla ja K6d vasen alanurkka, sekä K6c oikea alanurkka on long eka kulma'. Three corners, each half by half, sized by the size rule he confirmed for edges and corners (callouts.toml header), round the point where the back alley, his long, turns onto the site (the first route model (reittimalli-<owner>.md) Ancient CT side, his words: 'back alley (=long)'). His 'juuri ja juuri vielä kartalla' says the floor barely reaches K7b's corner; it is read as one of the three (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #14): its 9 positions all lie in it. It takes 45 BombsiteB positions (K6d 19, K6c 17, K7b 9). Junction basis: holds positions of BombsiteB"
+
+[[de_ancient.BombsiteB.split.parts]]
+callout = "ramp"
+cells = ["K8a", "K8b", "K8c", "K8d", "K9b", "K9a"]
+junction = true
+junction_source = "the same place as the game's Ramp (callout 'ramp'), whose junction it must share: alueomistus-pohja-2026-09-26.md de_ancient: 'ramp voidaan katsoa olevan kohtauspiste'"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Ramp myös K8a,K8b,K8c,K8d,K9b,K9a ovat ramppia.' and his words: 'Rampin alapäässä on myös K9a laatikko jonka päälle voi buustata, sen erottaa eri z arvosta ruudussa K9a jotka ovat selkeästi korkeammalla kuin muut.' His ramppia is the game's Ramp, whose callout is his own word (alueomistus-pohja-2026-09-26.md de_ancient table: Ramp = ramp), so the counts merge. K8a, K8b, K8c, K8d, K9b and K9a, his half-cells, whole; a slope, so no band. The same place as the part of TSideLower's split (one place on one floor is one region). The box at the ramp's foot, in K9a, fails the band rule of the callouts.toml header (ancient-taulukot-2026-10-01.md section 3: K9a's 106 live ticks run from z 3 to 126 with the largest gap 22.17; its top is about 15 ticks at z 118, but jumps at 26 to 96 bridge it), and he gives the box no name, so it is no part of its own and both its levels are his ramp. As written (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #12): it takes 57 BombsiteB positions at the ramp's top (K8a 47, K8b 10; z 104 to 165). Junction basis: the same place as the game's Ramp"
 
 [de_ancient.CTSpawn]
 callout = "ct spawn"
@@ -2363,6 +2572,22 @@ junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns
 neighbours = 3
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_ancient table: CTSpawn is CT; calloutit.md guide: CT SPAWN"
+note = "Since Story 4.27 the split below borrows BombsiteA's table and names his finer places inside it; every other position, and every rule row, stays ct spawn."
+
+[de_ancient.CTSpawn.split]
+image = "kartta08_sivu8_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [101.60768143832684, 100.35896711051464]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+parts_from = "BombsiteA"
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_ancient-BombsiteA.png and de_ancient-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_ancient.MainHall.split], checked float-equal (ancient-taulukot-2026-10-01.md section 2.1), so every split of de_ancient is on one grid. No floor cut (ancient-taulukot-2026-10-01.md section 2.2): no half-cell of the map holds two game areas whose median heights differ by 80 units or more, and the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-01 is vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', with his answers to the lead's four questions (vastaus-ancient-sitet-2026-10-01.md section 'His answers to the lead's four questions (2026-10-01, late evening)'), read as tables in ancient-taulukot-2026-10-01.md and built by the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. ct spawn is the area's own callout. The parts are [de_ancient.BombsiteA.split]'s, one table for the two splits (parts_from, as Inferno's three): his temple and his elbow hold positions of both areas, and both areas are junctions; this split renames only CTSpawn's positions, and only kynttilä and ct hold any. His places on this split, from his quoted words: ct spawn, kynttilä, ct."
+
+[de_ancient.CTSpawn.split.fit]
+sx = 0.2390768975019455
+sy = 0.2361387461423874
+bx = 770.9160766601562
+by = 662.82958984375
 
 [de_ancient.House]
 callout = "mid talo"
@@ -2500,7 +2725,7 @@ junction_source = "alueomistus-pohja-2026-09-26.md de_ancient: 'upper b long ja 
 neighbours = 3
 confidence = "measured"
 source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/ancient-epavarmat.png: the ticks lie on the guide label -- covers the RUINS corridor and DIG: both, so coarse is right. Before the measurement: alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'SideEntrance on todennäköisesti ruins ja dig niputettuna yhdeksi' -- his 'todennäköisesti'"
-note = "One game area holding two of his callouts, flagged. The game's own area called Ruins is not his ruins: by coordinates it is the guide's B DOORS (koordinaatit-mitattu-2026-09-27.md section 1), and its entry says so. Since Story 4.18 its positions are counted under ruins, vent and dig by the split below."
+note = "One game area holding two of his callouts, flagged. The game's own area called Ruins is not his ruins: by coordinates it is the guide's B DOORS (koordinaatit-mitattu-2026-09-27.md section 1), and its entry says so. Since Story 4.18 its positions are counted under ruins, vent and dig by the split below. Since Story 4.27 short nurkka, his corner of short in I6d, comes first; it holds no position."
 
 [de_ancient.SideEntrance.split]
 image = "kartta08_sivu8_1350x1350.png"
@@ -2517,12 +2742,23 @@ bx = 770.9160766601562
 by = 662.82958984375
 
 [[de_ancient.SideEntrance.split.parts]]
+callout = "short nurkka"
+regions = [
+  { cell = "I6d", x = [0.5, 1.0], y = [0.0, 0.5], words = "I6d ruudun oikeassa ylänurkassa" },
+]
+junction = true
+junction_source = "holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's SideEntrance on the guide picture, and the whole SideEntrance was a junction before the split (alueomistus-pohja-2026-09-26.md de_ancient: 'upper b long ja dig on kohtaamispiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review); the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #20"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Shortissa on vielä I6d ruudun oikeassa ylänurkassa kohta joka on nimeltään short nurkka.' I6d's top-right corner, sized by the size rule he confirmed for edges and corners (callouts.toml header), on his short, the corridor from the alley down to the site (the first route model (reittimalli-<owner>.md) Ancient CT side, his words: 'shortissa'). It holds no position. Before ruins in the table, which yields it the corner. The box in I6d's bottom-left corner, his words: 'Ruinsissa on myös I6d vasemmassa alanurkassa laatikko jonka taakse pääsee ettei B siteltä näe tai sen päälle voi myös buustata.', has no name and holds 2 live ticks at one level (z 155), so it is no part of its own; it lies inside ruins. Junction basis: holds none of the split area's positions and no live tick of the map lies in it; it lies in the game's SideEntrance on the guide picture"
+
+[[de_ancient.SideEntrance.split.parts]]
 callout = "ruins"
 cells = ["I6c", "I6d", "I7c", "I7d"]
+broad = true
 junction = true
 junction_source = "the whole SideEntrance was a junction before the split (alueomistus-pohja-2026-09-26.md de_ancient: 'upper b long ja dig on kohtaamispiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review); ruins is a place he names"
 confidence = "stated"
-source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `SideEntrance` (today *ruins/dig*, coarse)', row 'ruins | I6c, I6d, I7c, I7d'; his words: 'Ruins = I6c, I6d, I7c, I7d'"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `SideEntrance` (today *ruins/dig*, coarse)', row 'ruins | I6c, I6d, I7c, I7d'; his words: 'Ruins = I6c, I6d, I7c, I7d' Broad since Story 4.27: it yields I6d's top-right corner to short nurkka, which holds no position."
 
 [[de_ancient.SideEntrance.split.parts]]
 callout = "vent"
@@ -2554,7 +2790,36 @@ junction = false
 neighbours = 4
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_ancient table: TSideLower = lower b long (banaani)"
-note = "Conflict: the older table in the first route model (reittimalli-<owner>.md) gives TSideUpper and TSideLower one callout, 'B suora'; the 2026-09-26 account names the two halves, which this entry follows."
+note = "Conflict: the older table in the first route model (reittimalli-<owner>.md) gives TSideUpper and TSideLower one callout, 'B suora'; the 2026-09-26 account names the two halves, which this entry follows. Since Story 4.27 the split below names his finer places inside it; every other position, and every rule row, stays lower b long."
+
+[de_ancient.TSideLower.split]
+image = "kartta08_sivu8_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [101.60768143832684, 100.35896711051464]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_ancient-BombsiteA.png and de_ancient-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_ancient.MainHall.split], checked float-equal (ancient-taulukot-2026-10-01.md section 2.1), so every split of de_ancient is on one grid. No floor cut (ancient-taulukot-2026-10-01.md section 2.2): no half-cell of the map holds two game areas whose median heights differ by 80 units or more, and the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-01 is vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', with his answers to the lead's four questions (vastaus-ancient-sitet-2026-10-01.md section 'His answers to the lead's four questions (2026-10-01, late evening)'), read as tables in ancient-taulukot-2026-10-01.md and built by the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. lower b long is the area's own callout, his banaani (vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Tietysti myös lower B long ja upper B long koska se on ylöspäin viettävä liuska kohti midiä ja dig:iä.'), a slope with no band, so the parts are finer places inside it. His places on this split, from his quoted words: lower b long, cubby, ramp."
+
+[de_ancient.TSideLower.split.fit]
+sx = 0.2390768975019455
+sy = 0.2361387461423874
+bx = 770.9160766601562
+by = 662.82958984375
+
+[[de_ancient.TSideLower.split.parts]]
+callout = "cubby"
+cells = ["J8c"]
+junction = false
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'J8c on banaanissa calloutilla cubby'. J8c, his half-cell, in his banaani, the game's TSideLower (alueomistus-pohja-2026-09-26.md de_ancient table: TSideLower = lower b long (banaani)). Not the guide's CUBBY, which lies on the A side in F7: his word for J8c wins. It takes 15 TSideLower positions. Junction basis: holds positions of TSideLower"
+
+[[de_ancient.TSideLower.split.parts]]
+callout = "ramp"
+cells = ["K8a", "K8b", "K8c", "K8d", "K9b", "K9a"]
+junction = true
+junction_source = "the same place as the game's Ramp (callout 'ramp'), whose junction it must share: alueomistus-pohja-2026-09-26.md de_ancient: 'ramp voidaan katsoa olevan kohtauspiste'"
+confidence = "stated"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Ramp myös K8a,K8b,K8c,K8d,K9b,K9a ovat ramppia.' and his words: 'Rampin alapäässä on myös K9a laatikko jonka päälle voi buustata, sen erottaa eri z arvosta ruudussa K9a jotka ovat selkeästi korkeammalla kuin muut.' His ramppia is the game's Ramp, whose callout is his own word (alueomistus-pohja-2026-09-26.md de_ancient table: Ramp = ramp), so the counts merge. K8a, K8b, K8c, K8d, K9b and K9a, his half-cells, whole; a slope, so no band. The same place as the part of BombsiteB's split (one place on one floor is one region). The box at the ramp's foot, in K9a, fails the band rule of the callouts.toml header (ancient-taulukot-2026-10-01.md section 3: K9a's 106 live ticks run from z 3 to 126 with the largest gap 22.17; its top is about 15 ticks at z 118, but jumps at 26 to 96 bridge it), and he gives the box no name, so it is no part of its own and both its levels are his ramp. As written (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #12): it takes 77 TSideLower positions at the ramp's foot (K9a; z 4 to 126, 15 of them on the box). A junction although TSideLower is transit: a part named like an area takes that area's junction (the Story 4.25 order). Junction basis: the same place as the game's Ramp"
 
 [de_ancient.TSideUpper]
 callout = "upper b long"

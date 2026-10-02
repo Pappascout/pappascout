@@ -225,11 +225,11 @@
         "round_no": 1,
         "rows": [
           "  - 3 alley",
-          "    - 2 b site -> mid talo -> 1 ct spawn, 1 mid talo",
+          "    - 1 b site -> site pillar ⇄ b site -> mid talo",
+          "    - 1 long eka kulma -> b site -> mid talo -> ct spawn",
           "    - 1 ruins -> kuoli ruins (17 s)",
-          "  - 2 a site",
-          "    - 1 ct spawn ⇄ a site",
-          "    - 1 ct spawn -> mid talo ⇄ ct spawn"
+          "  - 1 brokyssä -> alttari -> a site -> ct spawn -> kynttilä",
+          "  - 1 kynttilä -> a site -> siten takana -> ct -> mid talo -> ct spawn -> ct"
         ],
         "won": false
       }
@@ -345,11 +345,13 @@
         "note": null,
         "round_no": 13,
         "rows": [
-          "  - 3 alley -> b site",
-          "    - 2 ct spawn -> a site",
-          "    - 1 ruins ⇄ b site -> ct spawn -> a site",
-          "  - 1 a site -> kuoli a site (38 s)",
-          "  - 1 mid talo -> ct spawn -> kuoli ct spawn (39 s)"
+          "  - 3 alley",
+          "    - 2 b site",
+          "      - 1 ct spawn -> ct -> ct:n kulma",
+          "      - 1 ruins ⇄ b site -> ct spawn -> ct",
+          "    - 1 long eka kulma -> b site -> ct spawn -> ct",
+          "  - 1 a site -> alttari ⇄ a site -> kuoli a site (38 s)",
+          "  - 1 mid talo -> ct spawn -> ct -> kuoli ct (39 s)"
         ],
         "won": false
       },
@@ -358,10 +360,10 @@
         "round_no": 13,
         "rows": [
           "  - 3 alley",
-          "    - 1 alley",
           "    - 1 b site -> ruins",
+          "    - 1 long toka kulma",
           "    - 1 ruins -> b site -> kuoli b site (17 s)",
-          "  - 1 a site -> ct spawn -> alley",
+          "  - 1 a site -> ct -> ct spawn -> alley",
           "  - 1 mid talo -> b site"
         ],
         "won": true
@@ -390,8 +392,11 @@
         "rows": [
           "  - 5 t-kuutio",
           "    - 4 hall",
-          "      - 3 a main -> a site -> 2 a site, 1 kuoli a site (31 s)",
-          "      - 1 a site",
+          "      - 3 a main -> a site",
+          "        - 1 alttari ⇄ a site -> kuoli a site (31 s)",
+          "        - 1 ct:n kulma ⇄ a site",
+          "        - 1 site boksit ⇄ a site -> brokyssä -> a site",
+          "      - 1 a site -> big box ⇄ a site -> kynttilä",
           "    - 1 t-elbow -> middle -> mid talo"
         ],
         "won": true
@@ -458,6 +463,6 @@
     ]
   },
   "limit": "A row is a string, so this catches the model and the renderer together and cannot say which of the two moved. It cannot be re-derived without the archive: the tests that read it without one assert on its own contents, which is a different job. The rows are read on the grid settings.toml declares, because _on_grid filters one demo of this archive down to it permanently -- so the table is the report on THAT grid and not on whatever grid a demo happens to be parsed at. It is an observation and not a rule: importing a demo changes these rows legitimately, and the answer is then to measure the table again and say so in the commit.",
-  "measured": "2026-10-01",
+  "measured": "2026-10-02",
   "note": "EVERY pistol block of every recorded team, keyed team/map/side/pistol, with the route rows as the view renders them from the real archive (Stories 4.11 and 4.13). Produced by running tests/test_calibration._route_blocks_from over the archive -- the same code path the test that reads it back uses -- so the file records what the tool produces and not a hand-written expectation. Since Story 4.13 the route reads every sample point, compresses each player's path to the product owner's junctions and speaks his callouts (src/pappascout/callouts.toml). The rows carry callouts, player counts and measured seconds only: the block's heading, which names the opponent and the date, is DELIBERATELY NOT HERE -- the repository is public and the denylist that guards it lives outside the repository (AD-12). What the heading states is pinned without the names in match_counts.json's played table."
 }
