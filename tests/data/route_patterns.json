@@ -4,7 +4,7 @@
       "lines": [
         "Reitti: mid doors, jopa 3 pelaajaa (5/8 kierroksesta, 3/3 ottelussa, uusin mukana)",
         "Reitti: long a, 2 pelaajaa (4/8 kierroksesta, 2/3 ottelussa, ei uusimmassa)",
-        "Reitti: b slope (päätelty) -> b site, 2 pelaajaa (3/8 kierroksesta, 3/3 ottelussa, uusin mukana)"
+        "Reitti: b slope (päätelty), 2 pelaajaa (3/8 kierroksesta, 3/3 ottelussa, uusin mukana)"
       ],
       "patterns": [
         {
@@ -135,11 +135,6 @@
               1,
               5,
               2
-            ],
-            [
-              2,
-              2,
-              2
             ]
           ],
           "stayed": false
@@ -215,7 +210,7 @@
         "Reitti: long a, jopa 3 pelaajaa (11/23 kierroksesta, 3/3 ottelussa, uusin mukana)",
         "Reitti: b slope (päätelty), 2 pelaajaa (8/23 kierroksesta, 2/3 ottelussa, ei uusimmassa)",
         "Reitti: short stairs, 2 pelaajaa (7/23 kierroksesta, 3/3 ottelussa, uusin mukana)",
-        "Reitti: b slope (päätelty) -> b site, 1 pelaaja jää (4/23 kierroksesta, 3/3 ottelussa, uusin mukana)",
+        "Reitti: b slope (päätelty) -> b site, 1 pelaaja jää (5/23 kierroksesta, 3/3 ottelussa, uusin mukana)",
         "Reitti: mid doors, 2 pelaajaa (4/23 kierroksesta, 2/3 ottelussa, uusin mukana)",
         "Reitti: short stairs, 1 pelaaja jää (3/23 kierroksesta, 2/3 ottelussa, ei uusimmassa)",
         "Reitti: short stairs -> catwalk ⇄ short stairs, 1 pelaaja jää (3/23 kierroksesta, 2/3 ottelussa, ei uusimmassa)"
@@ -428,6 +423,11 @@
             [
               2,
               7,
+              1
+            ],
+            [
+              2,
+              10,
               1
             ]
           ],
@@ -975,7 +975,8 @@
       "lines": [
         "Reitti: outside tunnels -> upper b, jopa 5 pelaajaa (7/8 kierroksesta, 1/2 ottelussa, ei uusimmassa)",
         "Reitti: long box, jopa 3 pelaajaa (3/8 kierroksesta, 2/2 ottelussa, ei uusimmassa)",
-        "Reitti: top mid, 2 pelaajaa (3/8 kierroksesta, 2/2 ottelussa, ei uusimmassa)"
+        "Reitti: top mid, 2 pelaajaa (3/8 kierroksesta, 2/2 ottelussa, ei uusimmassa)",
+        "Reitti: outside tunnels -> upper b -> b site, 1 pelaaja jää (3/8 kierroksesta, 1/2 ottelussa, ei uusimmassa)"
       ],
       "patterns": [
         {
@@ -1139,6 +1140,47 @@
           "newest": false,
           "path": [
             [
+              "outside tunnels",
+              null,
+              null,
+              null
+            ],
+            [
+              "upper b",
+              null,
+              null,
+              null
+            ],
+            [
+              "b site",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              2,
+              14,
+              1
+            ],
+            [
+              2,
+              20,
+              1
+            ],
+            [
+              2,
+              22,
+              1
+            ]
+          ],
+          "stayed": true
+        },
+        {
+          "newest": false,
+          "path": [
+            [
               "long box",
               null,
               null,
@@ -1200,42 +1242,6 @@
             ]
           ],
           "stayed": false
-        },
-        {
-          "newest": false,
-          "path": [
-            [
-              "outside tunnels",
-              null,
-              null,
-              null
-            ],
-            [
-              "upper b",
-              null,
-              null,
-              null
-            ],
-            [
-              "b site",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              2,
-              14,
-              1
-            ],
-            [
-              2,
-              22,
-              1
-            ]
-          ],
-          "stayed": true
         },
         {
           "newest": false,

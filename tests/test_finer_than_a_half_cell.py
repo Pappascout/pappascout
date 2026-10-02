@@ -1059,7 +1059,11 @@ _BANDED = {
     "de_dust2.ExtendedA": set(),
     "de_dust2.LongA": set(),
     # Review round 1 (A3): the window, whole C2b and C2d above its edge.
-    "de_dust2.BombsiteB": {("window", "C2b"), ("window", "C2d")},
+    "de_dust2.BombsiteB": {
+        ("window", "C2b"), ("window", "C2d"),
+        # His answer of 2026-10-02: the stack's top over B2d and C2c.
+        ("double stack", "B2d"), ("double stack", "C2c"),
+    },
     "de_dust2.BDoors": {("window", "C2b"), ("window", "C2d")},
     "de_dust2.MidDoors": set(),
 }
@@ -1237,9 +1241,6 @@ _ONE_LEVEL = {
     "the vent's knee height": ("de_nuke.Tunnels", "vent", None, None),
     # Story 4.26: the Dust2 boxes he names by height, and the scaffold
     # against the slope (dust2-taulukot-2026-10-01.md section 3).
-    "double stack's two boxes": (  # 5 ticks: latent until the archive grows
-        "de_dust2.BombsiteB", "double stack", None, None
-    ),
     "big box's corner, the box top alone": (  # 4 ticks: latent
         "de_dust2.BombsiteB", "big box", None, None
     ),

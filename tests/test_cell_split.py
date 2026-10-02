@@ -976,6 +976,9 @@ _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
     # leveydestä puolet korkeudesta"): B3b's corner beside B3a, the top-left,
     # where the box top lies (the lead's review of the 4.26 follow-up).
     ("osuu juuri b3a ja b3b välille", ((0.0, 0.5), (0.0, 0.5))),
+    # double stack, again (2026-10-02): one stands on its top "siten, että on
+    # ruudussa C2c", the centre over the edge -- C2c's left edge, EDGE wide.
+    ("että on ruudussa c2c", ((0.0, EDGE), _WHOLE)),
     # His own quarter.
     ("vasemman reunan neljännes", ((0.0, 0.25), _WHOLE)),
     # A corner he did not quantify: half by half (the size rule).
@@ -2131,11 +2134,18 @@ def test_his_eight_answers_on_the_a_side_and_the_boxes() -> None:
         ("B3a", 0.6, 0.4), ("B2c", 0.9, 0.9), ("B2d", 0.1, 0.9), ("B2d", 0.4, 0.9),
     ):
         assert _named_at(bsite, cell, fx, fy) is None, cell
-    # The rail's ticks and the open top-box patch stay b site.
+    # The rail's ticks stay b site, and so does the top-box tick above his
+    # corner; the stack's top over C2c's left edge is double stack, its
+    # floor beneath is not (his answer of 2026-10-02).
     for cell, fx, fy, z in (
-        ("B2d", 0.84, 0.27, 133.8), ("C2c", 0.13, 0.35, 133.8), ("B2b", 0.6, 0.6, 66.0)
+        ("B2d", 0.84, 0.27, 133.8), ("B2b", 0.6, 0.6, 66.0), ("C2c", 0.13, 0.35, 2.0),
+        ("B2d", 0.79, 0.63, 52.6), ("C2c", 0.3, 0.35, 133.8),
+        ("C2c", 0.26, 0.35, 133.8), ("C2c", 0.13, 0.35, 91.0),
     ):
         assert _named_at(bsite, cell, fx, fy, z) is None, cell
+    for cell, fx, fy in (("C2c", 0.13, 0.35), ("B2d", 0.79, 0.63)):
+        assert _named_at(bsite, cell, fx, fy, 133.8) == "double stack", cell
+    assert _named_at(bsite, "C2c", 0.13, 0.35, 95.0) == "double stack"
     big = next(p for p in bsite.parts if p.callout == "big box")
     assert big.confidence == "inferred" and not any(r.crossing for r in big.regions)
     boost = next(p for p in bsite.parts if p.callout == "b boost")
@@ -2154,11 +2164,12 @@ def test_his_eight_answers_on_the_a_side_and_the_boxes() -> None:
 _DUST2_CONFIDENCE = {
     "inferred": {
         "goose", "a auto", "hiekkasäkit", "big box", "b boost", "b slope",
+        "double stack",
     },
     "stated": {
         "short a", "elevator", "short stairs", "ct spawn", "fast cat", "ct ramppi",
         "ct cross", "long a", "ramp", "a site", "gandalf", "ninja", "window",
-        "double stack", "alttari", "b auto", "dog", "toka kulma", "b doors",
+        "alttari", "b auto", "dog", "toka kulma", "b doors",
         "raksatelineet",
     },
 }
