@@ -895,8 +895,9 @@ def test_every_new_parts_junction_follows_its_stated_basis(key: str) -> None:
 
 
 def _passage() -> str:
-    """The basis of A PASSAGE (Story 4.18, written in Story 4.27), read from
-    the header where the clause is written."""
+    """The basis of A PASSAGE (Story 4.18, written in Story 4.27): a part that
+    is a way to somewhere, not a place -- read from the header where the
+    clause is written."""
     return _header_clause(
         r"A PASSAGE \(Story 4\.18.*? Its basis reads '([^']*)'"
     )[1]
@@ -918,6 +919,23 @@ def _his_junction() -> re.Pattern:
 #: a closed set, so a basis rewritten into the form -- or out of it --
 #: fails by name.
 _HIS_JUNCTIONS = {("de_dust2", "ct cross")}
+
+
+#: The parts whose basis is A PASSAGE (Story 4.27, Winston's review): a
+#: closed set, as :data:`_HIS_JUNCTIONS`, so a basis rewritten into the form
+#: -- a junction made transit by a sentence -- fails by name.
+_PASSAGES = {("de_ancient", "vent")}
+
+
+def test_the_parts_that_are_a_passage_are_a_closed_set() -> None:
+    found = set()
+    for map_name, table in _table().items():
+        for entry in table.values():
+            for part in entry.split.parts if entry.split else []:
+                match = _BASIS.search(part.source)
+                if match and match[1] == _passage():
+                    found.add((map_name, part.callout))
+    assert found == _PASSAGES
 
 
 def test_the_parts_his_words_make_junctions_are_a_closed_set() -> None:

@@ -228,8 +228,8 @@
           "    - 1 b site -> site pillar ⇄ b site -> mid talo",
           "    - 1 long eka kulma -> b site -> mid talo -> ct spawn",
           "    - 1 ruins -> kuoli ruins (17 s)",
-          "  - 1 brokyssä -> alttari -> a site -> ct spawn -> kynttilä",
-          "  - 1 kynttilä -> a site -> siten takana -> ct -> mid talo -> ct spawn -> ct"
+          "  - 1 brokyssä -> alttari -> a site -> ct spawn -> kynttilä (päätelty)",
+          "  - 1 kynttilä (päätelty) -> a site -> siten takana -> ct -> mid talo -> ct spawn -> ct"
         ],
         "won": false
       }
@@ -396,7 +396,7 @@
           "        - 1 alttari ⇄ a site -> kuoli a site (31 s)",
           "        - 1 ct:n kulma ⇄ a site",
           "        - 1 site boksit ⇄ a site -> brokyssä -> a site",
-          "      - 1 a site -> big box ⇄ a site -> kynttilä",
+          "      - 1 a site -> big box ⇄ a site -> kynttilä (päätelty)",
           "    - 1 t-elbow -> middle -> mid talo"
         ],
         "won": true

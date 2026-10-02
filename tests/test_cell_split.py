@@ -262,7 +262,8 @@ def test_every_region_places_its_centre_under_the_first_part_that_claims_it(
 def test_no_claims_edge_lies_where_a_probe_sits(key: str) -> None:
     """The claim :func:`_spots` rests on (Story 4.27, review round 1): no edge
     of a half-cell, region or box of the table lies at 3/8 or 5/8 of a
-    half-cell, where the probes off a half-cell's centre sit."""
+    half-cell, where the probes off a half-cell's centre sit. If a region ever
+    needs an edge there, the probe points move, not the table."""
     _, split = _every_split()[key]
     w, h = split.cell[0] / 2, split.cell[1] / 2
     rects = [rect for _, rect, _ in split._claims]
@@ -2375,16 +2376,19 @@ def test_ramp_is_his_six_cells_and_the_b_long_corners_take_one_junction() -> Non
     assert _named_at(side, "I6d", 0.2, 0.8) == "ruins"
 
 
-#: Every Ancient part's confidence (Story 4.27, as Story 4.26's D14): every
-#: reading is his or his answers settled it, so every part is stated; pinned
+#: Every Ancient part's confidence (Story 4.27, as Story 4.26's D14), pinned
 #: so a confidence flipped in the table fails by name.
 _ANCIENT_CONFIDENCE = {
+    # kynttilä: 'aivan' read as the size rule's corner is ours (the lead's
+    # decision #3), and it moves 6 positions his brokyssä words give the
+    # ground (Winston's review of Story 4.27).
+    "inferred": {"kynttilä"},
     "stated": {
         # Story 4.18.
         "a main", "hall", "hallleft", "t-kuutio", "t-elbow", "outside main",
         "ruins", "vent", "dig",
         # Story 4.27.
-        "ct:n kulma", "kynttilä", "ct", "alttari", "big box", "brokyssä",
+        "ct:n kulma", "ct", "alttari", "big box", "brokyssä",
         "boosti", "siten takana", "site boksit", "site pillar", "default plant",
         "long/ramp plant", "long eka kulma", "ramp", "cubby", "ct laatikko",
         "long toka kulma", "short nurkka",

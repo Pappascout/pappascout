@@ -311,16 +311,37 @@
 #                      area is built on the split of the area that holds most
 #                      of them only, and its other positions keep their own
 #                      area's callout -- because one callout has one
-#                      junction. It first bites on Ancient's long toka kulma:
-#                      16 Alley (transit) and 3 BombsiteB positions, built on
-#                      Alley's split.
+#                      junction. Where the place's positions are decides it,
+#                      as for Dust2's fast cat, which stayed off CTSpawn's
+#                      split (Story 4.26). It first bites on Ancient's long
+#                      toka kulma: 16 Alley (transit) and 3 BombsiteB
+#                      positions, built on Alley's split.
 #                      A PASSAGE (Story 4.18, the spec 4.18 review; written
-#                      here in Story 4.27): a part he describes as a way
-#                      between two of his places, not as a place, is transit
-#                      although its split area is a junction -- Ancient's
-#                      vent, between ruins and dig, and outside main, towards
-#                      a main. Its basis reads 'a passage between two of his
-#                      places, not a place'.
+#                      here in Story 4.27): a part that is a way to
+#                      somewhere, not a place, is transit although its split
+#                      area is a junction -- Ancient's outside main, his
+#                      'towards a main', and vent, which his words only place
+#                      ('Vent = I8a,I8b'): its reading as the way between
+#                      ruins and dig is the lead's, in Story 4.18. Its basis
+#                      reads 'a way to somewhere, not a place'. The basis form
+#                      is read where a split is registered for the tests of
+#                      junction bases; Outside's split carries no basis
+#                      lines, so outside main states its reading in its
+#                      source only. The tests hold the parts that take the
+#                      form to a closed set.
+#                      THE ORDER OF THE JUNCTION CLAUSES (Story 4.27), as the
+#                      tests apply them: HIS WORD FIRST; then A PASSAGE; then
+#                      the first clause of A PART'S JUNCTION (a part named
+#                      like an area takes that area's); then its second (a
+#                      part holding positions of its split areas takes
+#                      theirs, on each split), with its third for a part
+#                      holding none; and last the majority clause above, the
+#                      fallback when the second clause's areas disagree and
+#                      no earlier clause fixes the junction. The earlier
+#                      clauses already settle three parts that hold a transit
+#                      area's and a junction area's positions: ct cross (his
+#                      word), short a and alakerran sinkku (the first
+#                      clause).
 #   junction        -- see the rule above. A transit place drops out of the
 #                      middle of a route; a place with no callout is always
 #                      kept, so the flag stays visible.
@@ -2436,8 +2457,8 @@ regions = [
 broad = true
 junction = true
 junction_source = "holds positions of BombsiteA and CTSpawn, whose entries are junctions: a bomb site and a spawn (spec-4-13-the-route-through-his-junctions.md: bomb sites and spawns are junctions)"
-confidence = "stated"
-source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Tai kynttilästä, joka on temppelin sisällä, kynttilä on E4a,E4c,E4d,E5b vasen ihan ylänurkka, E5a oikea ylänurkka,E4c ja D4d aivan oikea alanurkka on kynttilää' and his words: 'mutta kun tulee ulos rakennuksesta ja tippuu hieman alemmas maan tasolle D4d ruudussa on jo brokyssä, joka on alue heti kynttilän ulkopuolella big boxin takana'. Inside the temple, the guide's TEMPLE: E4a, E4c and E4d whole (his second E4c repeats the first), and three corners, each half by half, sized by the size rule he confirmed for edges and corners (callouts.toml header): E5b's top-left, E5a's top-right and D4d's bottom-right. His 'ihan' and 'aivan' (very) intensify and do not quantify, so the corners are the size rule's (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #3). The temple floor is z 97 to 103, and the E5a and E5b corners hold only ticks on it (97 to 99). Broad: it yields to every earlier part it overlaps, so E4d's bottom-right corner is CT:n kulma's. E4b, inside the temple too, is not his kynttilä and stays a site and ct spawn (#5). On its whole claim it fails the band rule of the callouts.toml header (ancient-taulukot-2026-10-01.md section 3: 72 live ticks in its half-cells and regions, z 52 to 128, the largest gap 22.41; its three corners alone hold 34, the largest gap 26.84), so it has no band. KNOWN LIMIT (the drop in D4d's corner): it rests on the size rule as well as the band rule. His 'aivan oikea alanurkka' is read as the size rule's corner, half by half (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #3), and a smaller corner would leave the ground to brokyssä. The corner holds 30 positions: 24 on the temple floor (z 98.1 to 128.4, among them 104.4, 106.0 and 128.4), 5 at the ground (z 52.0), which his words make brokyssä, and 1 on the drop (78.9). The rule cannot separate them (the largest gap 26.84, from 52.03 to 78.88), so all 30 are counted as kynttilä, and so are the 3 kill rows at z 52 in the corner (1 victim, 2 attackers). It stays stated: the size rule is his confirmed rule. It takes 60 BombsiteA positions (D4d 30, E4c 19, E4a 6, E5a 3, E4d 1, E5b 1), and on CTSpawn's split it takes 11 CTSpawn positions (E4a 6, E4c 5). Junction basis: holds positions of BombsiteA, CTSpawn"
+confidence = "inferred"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Tai kynttilästä, joka on temppelin sisällä, kynttilä on E4a,E4c,E4d,E5b vasen ihan ylänurkka, E5a oikea ylänurkka,E4c ja D4d aivan oikea alanurkka on kynttilää' and his words: 'mutta kun tulee ulos rakennuksesta ja tippuu hieman alemmas maan tasolle D4d ruudussa on jo brokyssä, joka on alue heti kynttilän ulkopuolella big boxin takana'. Inside the temple, the guide's TEMPLE: E4a, E4c and E4d whole (his second E4c repeats the first), and three corners, each half by half, sized by the size rule he confirmed for edges and corners (callouts.toml header): E5b's top-left, E5a's top-right and D4d's bottom-right. His 'ihan' and 'aivan' (very) intensify and do not quantify, so the corners are the size rule's (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #3). The temple floor is z 97 to 103, and the E5a and E5b corners hold only ticks on it (97 to 99). Broad: it yields to every earlier part it overlaps, so E4d's bottom-right corner is CT:n kulma's. E4b, inside the temple too, is not his kynttilä and stays a site and ct spawn (#5). On its whole claim it fails the band rule of the callouts.toml header (ancient-taulukot-2026-10-01.md section 3: 72 live ticks in its half-cells and regions, z 52 to 128, the largest gap 22.41; its three corners alone hold 34, the largest gap 26.84), so it has no band. KNOWN LIMIT (the drop in D4d's corner): it rests on the size rule as well as the band rule. His 'aivan oikea alanurkka' is read as the size rule's corner, half by half (the lead's decisions on ancient-taulukot-2026-10-01.md (spec-4-27-ancient-sites.md, section 'Lead decisions on ancient-taulukot-2026-10-01.md'), #3), and a smaller corner would leave the ground to brokyssä. The corner holds 30 positions: 24 on the temple floor (z 98.1 to 128.4, among them 104.4, 106.0 and 128.4), 5 at the ground (z 52.0), which his words make brokyssä, and 1 on the drop (78.9). The rule cannot separate them (the largest gap 26.84, from 52.03 to 78.88), so all 30 are counted as kynttilä, and so are the 3 kill rows at z 52 in the corner (1 victim, 2 attackers). So kynttilä is inferred: reading 'aivan' as the size rule's corner is ours (decision #3), and it moves 6 positions that his own brokyssä words give the ground: the header's rule for a part's reading, as for Dust2's double stack. It takes 60 BombsiteA positions (D4d 30, E4c 19, E4a 6, E5a 3, E4d 1, E5b 1), and on CTSpawn's split it takes 11 CTSpawn positions (E4a 6, E4c 5). Junction basis: holds positions of BombsiteA, CTSpawn"
 
 [[de_ancient.BombsiteA.split.parts]]
 callout = "ct"
@@ -2458,7 +2479,7 @@ cells = ["C4d", "C5b"]
 junction = true
 junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
 confidence = "stated"
-source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Sieltä back siteltä (kutsun alttariksi, ettei mene siten takana sekaisin, joka on site boksien takana kerron myöhemmin) saatetaan holdata tähän ruuduista C4d, C5b'. His rename of the guide's BACK SITE (Dust2's alttari is another map's), and his back site of alueomistus-pohja-2026-09-26.md de_ancient, a contact point: 'kohtauspisteitä on ... a main sekä back site'. His kohtauspiste (contact point) words are not the header's HIS WORD FIRST form, which Story 4.26 narrowed to his words naming a choice point; the bomb-site rule gives it junction = true anyway. One platform at z 75 to 87 (52 of its ticks). It takes 62 BombsiteA positions (C4d 56, C5b 6). Junction basis: holds positions of BombsiteA"
+source = "vastaus-ancient-sitet-2026-10-01.md section 'Verbatim', his words: 'Sieltä back siteltä (kutsun alttariksi, ettei mene siten takana sekaisin, joka on site boksien takana kerron myöhemmin) saatetaan holdata tähän ruuduista C4d, C5b'. His rename of the guide's BACK SITE (Dust2's alttari is another map's), and his back site of alueomistus-pohja-2026-09-26.md de_ancient, a contact point: 'kohtauspisteitä on ... a main sekä back site'. His kohtauspiste (contact point) words are not the header's HIS WORD FIRST form, which names a choice point; the bomb-site rule gives it junction = true anyway. One platform at z 75 to 87 (52 of its ticks). It takes 62 BombsiteA positions (C4d 56, C5b 6). Junction basis: holds positions of BombsiteA"
 
 [[de_ancient.BombsiteA.split.parts]]
 callout = "big box"
@@ -2783,7 +2804,7 @@ callout = "vent"
 cells = ["I8a", "I8b"]
 junction = false
 confidence = "stated"
-source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `SideEntrance` (today *ruins/dig*, coarse)', row 'vent | I8a, I8b'; his words: 'Vent = I8a,I8b'. Transit although the whole SideEntrance was a junction: it is a passage between ruins and dig, not a place (spec 4.18 review). Junction basis: a passage between two of his places, not a place"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `SideEntrance` (today *ruins/dig*, coarse)', row 'vent | I8a, I8b'; his words: 'Vent = I8a,I8b'. Transit although the whole SideEntrance was a junction: it is a passage between ruins and dig, not a place (spec 4.18 review). Junction basis: a way to somewhere, not a place"
 
 [[de_ancient.SideEntrance.split.parts]]
 callout = "dig"
