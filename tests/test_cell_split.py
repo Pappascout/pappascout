@@ -2419,7 +2419,12 @@ _INFERNO_CONFIDENCE = {
     # short boost: the window frames as its region are the lead's default
     # for a question sent to him (#21); minipit: K12a whole is the default
     # for another (#23); close/brackets: Story 4.20's reading of his guess.
-    "inferred": {"short boost", "minipit", "close/brackets"},
+    # takanurkka: "iujea" read as "oikea" is the lead's typo reading, and
+    # it moves 2 positions; puhujakoroke: its side is a question sent to
+    # him, and the guide draws it mirrored (review round 1, #7 and #8).
+    "inferred": {
+        "short boost", "minipit", "close/brackets", "takanurkka", "puhujakoroke"
+    },
     "stated": {
         # Story 4.20.
         "grill/pool", "ct boost", "ct", "cross", "tree", "auto", "puolimuuri",
@@ -2430,8 +2435,8 @@ _INFERNO_CONFIDENCE = {
         "secondin kulma", "second mid", "cubby", "long", "porch",
         # Story 4.28.
         "ykkönen", "kakkonen", "fountain", "coffin", "uudet", "dark", "ruins",
-        "truck", "ykkös boksi", "headshot boksi", "longbox", "takanurkka",
-        "coldzera boksi", "default laatikko", "moto", "pit", "puhujakoroke",
+        "truck", "ykkös boksi", "headshot boksi", "longbox", "coldzera boksi",
+        "default laatikko", "moto", "pit",
     },
 }
 
@@ -2497,10 +2502,10 @@ def test_infernos_sites_read_the_one_table_and_keep_the_area_for_the_rest() -> N
 
 def test_ykkonen_and_kakkonen_are_their_box_tops_and_the_ground_stays_b_site() -> None:
     """The first box (his ykkonen) is the crossing box above its measured
-    edge, his "above the ground"; the second box's two corners carry that
-    band by his word (the lead's decision #5). Below the edge, the second
-    box's corners keep b site and the first box's G5d and G6b corners fall
-    to cross, his 2026-09-28 word."""
+    edge, his "above the ground", in G5c and G6a; the second box's two
+    corners carry that band by his word (the lead's decision #5). Below the
+    edge, the first box's G5d and G6b corners fall to cross, his 2026-09-28
+    word, its G5c and G6a corners keep b site, and so do the second box's."""
     table = _inferno()
     split = table["BombsiteB"].split
     parts = {p.callout: p for p in split.parts}
@@ -2512,7 +2517,9 @@ def test_ykkonen_and_kakkonen_are_their_box_tops_and_the_ground_stays_b_site() -
     assert _named_at(split, "G5c", 0.8, 0.8, edge) == "ykkönen"
     assert _named_at(split, "G6a", 0.8, 0.2, edge) == "ykkönen"
     assert _named_at(split, "G5d", 0.2, 0.8, edge - 0.01) == "cross"
+    assert _named_at(split, "G6b", 0.2, 0.2, edge - 0.01) == "cross"
     assert _named_at(split, "G5c", 0.8, 0.8, edge - 0.01) is None
+    assert _named_at(split, "G6a", 0.8, 0.2, edge - 0.01) is None
     for cell, fx, fy in (("G6a", 0.2, 0.2), ("G5c", 0.2, 0.8)):
         assert _named_at(split, cell, fx, fy, edge) == "kakkonen", cell
         assert _named_at(split, cell, fx, fy, edge - 0.01) is None, cell
@@ -2559,3 +2566,42 @@ def test_his_a_boxes_and_corners_are_where_he_put_them() -> None:
     pit = next(p for p in split.parts if p.callout == "pit")
     assert pit.junction == table["Pit"].junction is False
     assert _named_at(split, "K12b", 0.5, 0.5) == "pit"
+
+
+def test_coldzera_boksi_is_a_box_of_one_half_cell_on_j10s_crossing() -> None:
+    """Review round 1 (#18): the crossing box is one half-cell wide and high,
+    as the precedents and ykkonen's; probes a little inside and a little
+    outside its edge, on J10c's side (where "eniten J10c oikeassa
+    ylänurkassa" puts most of it) and on J10d's, hold the size both ways --
+    a box of 1.1 or 0.5 half-cells fails here."""
+    split = _inferno()["BombsiteA"].split
+    box = next(p for p in split.parts if p.callout == "coldzera boksi")
+    (crossing,) = box.regions
+    assert (crossing.crossing, crossing.size) == (["J10c", "J10d", "J10b", "J10a"], 1.0)
+    # The crossing is J10c's top-right corner and J10d's top-left: 0.47 and
+    # 0.53 of a half-cell from it, on both axes.
+    for cell, inside, outside in (
+        ("J10c", (0.53, 0.47), (0.47, 0.53)),
+        ("J10d", (0.47, 0.47), (0.47, 0.53)),
+    ):
+        assert _named_at(split, cell, *inside) == "coldzera boksi", cell
+        assert _named_at(split, cell, *outside) is None, cell
+
+
+def test_the_coarse_inferno_splits_inherit_the_sites_names_by_the_nearest_rule() -> None:
+    """Review round 1 (#3): the nine whole half-cells Story 4.28 added change
+    what Banana's, Apartments' and TopofMid's unnamed half-cells inherit --
+    some now inherit transit names. Measured, no live tick, death or event
+    moves by it; pinned so that the next change to the nearest map shows up
+    here and does not slip through."""
+    table = _inferno()
+    for area in ("Banana", "Apartments", "TopofMid"):
+        inherited = table[area].split.inherited
+        assert len(inherited) == 681, area
+        assert (inherited["K12a"], inherited["H4a"], inherited["F4c"]) == (
+            "pit", "ruins", "dark"
+        ), area
+        assert not {"F4a", "F5b", "G5a", "G3b", "G3d", "K12b", "L12a", "L12c", "K12d"} & set(
+            inherited
+        ), area
+    assert "254 inherited half-cells change callout" in table["Banana"].split.source

@@ -953,6 +953,77 @@ def test_the_parts_that_are_a_passage_are_a_closed_set() -> None:
     assert found == _PASSAGES
 
 
+def _guide_picture() -> re.Pattern:
+    """A basis read off the guide picture (the header's THE GUIDE PICTURE,
+    Story 4.28): the form the header writes, with the game area where it
+    says <area>."""
+    clause = _header_clause(
+        r'THE GUIDE PICTURE .*? its basis then reads "([^"<]*)<area>([^"<]*)"'
+    )
+    return re.compile(re.escape(clause[1]) + r"(\w+)" + re.escape(clause[2]))
+
+
+#: The parts whose junction basis is the guide picture, and the game area it
+#: names (Story 4.28, review round 1): a closed set, as the passages and his
+#: word, so a basis that names another area, or a part that takes the form
+#: unlisted, fails by name -- one sentence decides these parts' flags.
+_GUIDE_PICTURE = {
+    ("de_dust2", "dog"): "BombsiteB",
+    ("de_dust2", "toka kulma"): "BombsiteB",
+    ("de_ancient", "ct laatikko"): "Alley",
+    ("de_ancient", "short nurkka"): "SideEntrance",
+    ("de_inferno", "dark"): "BombsiteB",
+    ("de_inferno", "headshot boksi"): "BombsiteA",
+    ("de_inferno", "longbox"): "BombsiteA",
+}
+
+
+def test_the_parts_read_off_the_guide_picture_are_a_closed_set() -> None:
+    found = {}
+    for map_name, table in _table().items():
+        for entry in table.values():
+            for part in entry.split.parts if entry.split else []:
+                match = _BASIS.search(part.source)
+                read = _guide_picture().search(match[1]) if match else None
+                if read:
+                    found[(map_name, part.callout)] = read[1]
+                    assert part.junction == table[read[1]].junction, part.callout
+    assert found == _GUIDE_PICTURE
+
+
+#: The areas a junction_source says a part holds positions of, where it
+#: says so in the basis's own form (review round 1, #19).
+_SOURCE_HOLDS = re.compile(r"^holds positions of ([A-Z]\w*(?:(?:, | and )[A-Z]\w*)*)")
+
+
+@pytest.mark.parametrize("key", sorted(_PART_SPLITS))
+def test_a_junction_source_in_the_basis_form_names_the_basis_areas(key: str) -> None:
+    """Review round 1 (#19): a junction_source that states what the part
+    holds, or the guide picture's area, in the basis's own form, names the
+    same areas as the part's basis -- so a junction_source rewritten apart
+    from its basis fails here. The basis itself is held to the archive
+    (test_every_stated_junction_basis_is_what_the_archive_shows)."""
+    table = _table()[_map_of(key)]
+    checked = 0
+    for part in table[_PART_SPLITS[key][0]].split.parts:
+        source = part.junction_source or ""
+        basis = _stated_basis(part)
+        holds = _SOURCE_HOLDS.match(source)
+        if holds:
+            stated = re.match(r"holds positions of ([A-Za-z, ]+)", basis)
+            assert stated, (part.callout, basis)
+            named = set(re.split(", | and ", holds[1]))
+            assert named == set(stated[1].split(", ")), part.callout
+            checked += 1
+        read = _guide_picture().search(source)
+        if read:
+            assert _guide_picture().search(basis)[1] == read[1], part.callout
+            checked += 1
+    if key == "de_inferno":
+        # 15 parts state their holdings so, 3 the guide picture's area.
+        assert checked == 18, checked
+
+
 def test_the_parts_his_words_make_junctions_are_a_closed_set() -> None:
     found = set()
     for map_name, table in _table().items():
