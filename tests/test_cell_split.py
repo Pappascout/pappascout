@@ -213,8 +213,10 @@ def _spots(split: CellSplit, part: CellPart) -> list[tuple[float, float, float]]
     at a height inside the region's band -- and, for a half-cell, four more an
     eighth of the half-cell from its centre on the diagonals (Story 4.27): a
     broad part whose half-cell's centre an earlier corner holds (brokyssä's
-    D4d, kynttilä's corner) still has spots of its own. No region edge of the
-    table lies at 3/8 or 5/8 of a half-cell, so the probes sit on none."""
+    D4d, kynttilä's corner) still has spots of its own. No claim's edge lies at
+    3/8 or 5/8 of a half-cell, where the probes sit, so the test's geometry and
+    the model's cannot disagree on a boundary there
+    (:func:`test_no_claims_edge_lies_where_a_probe_sits` holds it)."""
     spots = [
         _at_pixel(split, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2) for b in part.boxes
     ]
@@ -254,6 +256,25 @@ def test_every_region_places_its_centre_under_the_first_part_that_claims_it(
             assert split.part_at(x, y, z) is expected, part.callout
             won += expected is part
         assert won, part.callout
+
+
+@pytest.mark.parametrize("key", SPLITS)
+def test_no_claims_edge_lies_where_a_probe_sits(key: str) -> None:
+    """The claim :func:`_spots` rests on (Story 4.27, review round 1): no edge
+    of a half-cell, region or box of the table lies at 3/8 or 5/8 of a
+    half-cell, where the probes off a half-cell's centre sit."""
+    _, split = _every_split()[key]
+    w, h = split.cell[0] / 2, split.cell[1] / 2
+    rects = [rect for _, rect, _ in split._claims]
+    rects += [box for part in split.parts for box in part.boxes]
+    for x0, y0, x1, y1 in rects:
+        for edge, origin, size in (
+            (x0, split.origin[0], w), (x1, split.origin[0], w),
+            (y0, split.origin[1], h), (y1, split.origin[1], h),
+        ):
+            fraction = ((edge - origin) / size) % 1
+            for probe in (3 / 8, 5 / 8):
+                assert abs(fraction - probe) > 1e-6, (key, edge, probe)
 
 
 def test_a_half_cell_name_round_trips_and_a_foreign_one_is_refused() -> None:
@@ -2213,14 +2234,6 @@ _DUST2_CONFIDENCE = {
 }
 
 
-def test_every_dust2_part_carries_the_confidence_its_reading_earns() -> None:
-    found = {}
-    for area, entry in _dust2().items():
-        for part in entry.split.parts if entry.split else []:
-            found.setdefault(part.confidence, set()).add(part.callout)
-    assert found == _DUST2_CONFIDENCE
-
-
 # -- Story 4.27: Ancient's sites -----------------------------------------------
 
 
@@ -2292,9 +2305,10 @@ def test_the_temple_is_kynttila_and_the_ground_below_it_brokyssa() -> None:
 
 def test_siten_takana_is_e5ds_right_third_and_also_headshot_kulma() -> None:
     """His answers 2 and 3 to the lead's four questions: siten takana is
-    E5d's right third, and headshot kulma is the same place, so one callout
-    carries both names; site boksit keeps the rest of E5d, and E5b's bottom
-    edge is the site ("sitä voi vaan kutsua siteksi")."""
+    E5d's right third, and headshot kulma is the same place, so one callout,
+    siten takana, his first word (as Inferno's porch), with headshot kulma
+    recorded in its source; site boksit keeps the rest of E5d, and E5b's
+    bottom edge is the site ("sitä voi vaan kutsua siteksi")."""
     split = _ancient()["BombsiteA"].split
     parts = {p.callout: p for p in split.parts}
     assert "headshot kulma" not in parts
@@ -2309,8 +2323,8 @@ def test_siten_takana_is_e5ds_right_third_and_also_headshot_kulma() -> None:
 
 def test_boosti_is_his_high_level_only() -> None:
     """His answer 1: "Vain korkea taso". boosti is the right third of D6a
-    and of D6b above the measured edge; the ground and the head-height ticks
-    beneath it, and the rest of the two half-cells, keep a site."""
+    and of D6b above the measured edge; the lower level beneath it, and the
+    rest of the two half-cells, keep a site."""
     split = _ancient()["BombsiteA"].split
     boosti = next(p for p in split.parts if p.callout == "boosti")
     (edge,) = {r.z[0] for r in boosti.regions}
@@ -2353,7 +2367,9 @@ def test_ramp_is_his_six_cells_and_the_b_long_corners_take_one_junction() -> Non
     assert _named_at(bsite, "J7b", 0.2, 0.8) == "long/ramp plant"
     assert _named_at(bsite, "J7d", 0.2, 0.2) is None
     assert _named_at(alley, "I5d", 0.1, 0.5) == "ct laatikko"
-    assert _named_at(alley, "I5d", 0.8, 0.8) is None  # his AWP spot: short
+    # His AWP spot is in short, he answered, but Ancient has no short
+    # callout: a known limit, so its ticks print alley.
+    assert _named_at(alley, "I5d", 0.8, 0.8) is None
     side = table["SideEntrance"].split
     assert _named_at(side, "I6d", 0.8, 0.2) == "short nurkka"
     assert _named_at(side, "I6d", 0.2, 0.8) == "ruins"
@@ -2376,9 +2392,15 @@ _ANCIENT_CONFIDENCE = {
 }
 
 
-def test_every_ancient_part_carries_the_confidence_its_reading_earns() -> None:
+#: The maps whose every part's confidence is pinned (review round 1 of
+#: Story 4.27: one test for both).
+_CONFIDENCE = {"de_dust2": _DUST2_CONFIDENCE, "de_ancient": _ANCIENT_CONFIDENCE}
+
+
+@pytest.mark.parametrize("map_name", sorted(_CONFIDENCE))
+def test_every_part_carries_the_confidence_its_reading_earns(map_name: str) -> None:
     found = {}
-    for entry in _ancient().values():
+    for entry in load_callouts(_POOL)[map_name].values():
         for part in entry.split.parts if entry.split else []:
             found.setdefault(part.confidence, set()).add(part.callout)
-    assert found == _ANCIENT_CONFIDENCE
+    assert found == _CONFIDENCE[map_name]

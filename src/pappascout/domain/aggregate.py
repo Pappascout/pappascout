@@ -2337,6 +2337,15 @@ def _from_first_junction(
     Both spawns count, ``CTSpawn`` as well as ``TSpawn``
     (:data:`~pappascout.domain.sampling.SPAWN_AREAS`).
 
+    **A spawn is stripped by its label, not by its area**: ``spawns`` holds
+    the spawn areas' callouts, *ct spawn* and *t spawn*. Since Story 4.27 a
+    CTSpawn position his cells name otherwise -- his temple and his elbow,
+    *ct* -- is that place of his and is not stripped; his words that G4c and
+    G5a's top edge are ct spawn draw the line (de_ancient's *ct* part in
+    ``callouts.toml`` quotes them). Measured on the archive's de_ancient
+    demos: 2 of the 10 live CTSpawn ticks at 6 s and 1 of 1 at 9 s are
+    named so.
+
     An alternation at the head is judged by the place it went to, as its
     label is. A player who reaches no such place has no route and is left
     out of the patterns: the empty list.

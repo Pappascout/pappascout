@@ -398,7 +398,7 @@ _PART_SPLITS = {
     "de_ancient.BombsiteA": ("BombsiteA", "CTSpawn"),
     **{
         f"de_ancient.{area}": (area,)
-        for area in ("BombsiteB", "TSideLower", "Alley")
+        for area in ("BombsiteB", "TSideLower", "Alley", "SideEntrance")
     },
 }
 
@@ -874,7 +874,11 @@ def test_every_new_parts_junction_follows_its_stated_basis(key: str) -> None:
             assert part.junction, callout
             assert f"his words: '{his[1]}'" in (part.junction_source or ""), callout
             continue
-        if basis.startswith("inside "):
+        if basis == _passage():
+            # Story 4.18's passage, written in the header in Story 4.27:
+            # transit although its split area is a junction (vent).
+            expected = False
+        elif basis.startswith("inside "):
             other = re.match(r"inside (.+?), whose basis it shares", basis)[1]
             expected = parts[other].junction
         elif basis.startswith("holds positions of "):
@@ -888,6 +892,14 @@ def test_every_new_parts_junction_follows_its_stated_basis(key: str) -> None:
             expected = table[area[1] or area[2]].junction
         assert part.junction == expected, (callout, basis)
         assert (part.junction_source is not None) == part.junction, callout
+
+
+def _passage() -> str:
+    """The basis of A PASSAGE (Story 4.18, written in Story 4.27), read from
+    the header where the clause is written."""
+    return _header_clause(
+        r"A PASSAGE \(Story 4\.18.*? Its basis reads '([^']*)'"
+    )[1]
 
 
 def _his_junction() -> re.Pattern:
@@ -1088,6 +1100,7 @@ _BANDED = {
     "de_ancient.BombsiteB": set(),
     "de_ancient.TSideLower": set(),
     "de_ancient.Alley": set(),
+    "de_ancient.SideEntrance": set(),
 }
 
 
