@@ -990,6 +990,16 @@ _WHOLE = (0.0, 1.0)
 #: half by half corner (his own corner size, "puolet korkeudesta ja
 #: leveydestä").
 _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
+    # Story 4.29, his eight answers (vastaukset-2026-10-05.md). Minipit's
+    # corner "a little larger than a quarter square" is the size rule's
+    # corner: "vähän isompi" says not how much (the lead's decision 4, so
+    # minipit is inferred) -- before "yläreuna", which his words deny it.
+    ("enemmänkin vasen alanurkka", ((0.0, 0.5), (0.5, 1.0))),
+    # His "nuo" (those points) are the ones the lead's question placed in
+    # D6c's top-right corner, half by half (decision 5).
+    ("jos nuo ovat pelaajia", ((0.5, 1.0), (0.0, 0.5))),
+    # A corner he did not quantify: half by half (the size rule).
+    ("oikea yläkulma", ((0.5, 1.0), (0.0, 0.5))),
     # Story 4.28, his Inferno site answer (vastaus-inferno-sitet-2026-10-02.md).
     # The fountain's top halves, in his plural.
     ("yläpuoliskot", (_WHOLE, (0.0, 0.5))),
@@ -1003,8 +1013,6 @@ _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
     # half (EDGE either side of 1/2) high.
     ("keskellä vasemmalla", ((0.0, EDGE), (0.5 - EDGE, 0.5 + EDGE))),
     ("ylttää vielä ruudun j10b puolelle", ((1 - EDGE, 1.0), (0.5 - EDGE, 0.5 + EDGE))),
-    # The podium's G4b corner, as written: the top-left.
-    ("vasemman ylänurkan puolella", ((0.0, 0.5), (0.0, 0.5))),
     # Story 4.27, his Ancient site answer (vastaus-ancient-sitet-2026-10-01.md).
     # "ihan" and "aivan" (very) intensify a corner and do not quantify it, so
     # it is the size rule's half by half (the lead's decision #3).
@@ -1188,8 +1196,9 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
     * every region's ``words`` are a phrase of those quotes and write the
       region's own half-cell;
     * a fraction is the one his words say (:data:`_FRACTION_WORDS`, the
-      size rule he confirmed where he gave no size), and *mutta ei* (but not) makes it
-      the rest of the half-cell -- checked on the union of the part's
+      size rule he confirmed where he gave no size), and *mutta ei* (but not)
+      or *loput* (the rest) makes it the rest of the half-cell -- checked
+      on the union of the part's
       regions with those words;
     * a crossing is his *risteys*, and a box of one half-cell where he says
       *yhden ruudun kokoinen* (the size is required, with no default);
@@ -1278,7 +1287,9 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
     for (cell, words), regions in groups.items():
         x, y = _fraction_of(words)
         expected = _samples(x, y)
-        if "mutta ei" in words:
+        # "mutta ei" (but not), and "loput" (the rest: Story 4.29, "F5a:n
+        # oikea alanurkka on siteä loput CT:tä") give the part the rest.
+        if "mutta ei" in words or "loput" in words:
             expected = _samples(_WHOLE, _WHOLE) - expected
         actual = set().union(*(_samples(r.x, r.y) for r in regions))
         assert actual == expected, (part.callout, cell, words)
@@ -2289,8 +2300,10 @@ def test_the_temple_is_kynttila_and_the_ground_below_it_brokyssa() -> None:
     """His temple: E4a, E4c and E4d whole and three corners are kynttilä on
     BombsiteA's and CTSpawn's splits alike; D4d's rest is brokyssä, the
     ground he drops to; E4d's bottom-right corner and E5b's top-right are
-    CT:n kulma, carved out of his CT, which keeps its four fractions; G4c
-    and G5a's top edge are ct spawn, as he says."""
+    CT:n kulma, carved out of his CT, which keeps its four fractions -- F5a's
+    since Story 4.29 all of F5a but its bottom-right corner, a site, his
+    answer 7 of 2026-10-05; G4c and G5a's top edge are ct spawn, as he
+    says."""
     table = _ancient()
     for area in ("BombsiteA", "CTSpawn"):
         split = table[area].split
@@ -2306,8 +2319,9 @@ def test_the_temple_is_kynttila_and_the_ground_below_it_brokyssa() -> None:
         for fx, fy in ((0.2, 0.2), (0.8, 0.2), (0.2, 0.8)):
             assert _named_at(split, "D4d", fx, fy) == "brokyssä", (area, fx, fy)
         assert _named_at(split, "E4b", 0.5, 0.5) is None, area
-        assert _named_at(split, "F5a", 0.9, 0.5) == "ct", area
-        assert _named_at(split, "F5a", 0.5, 0.5) is None, area
+        for fx, fy in ((0.2, 0.2), (0.9, 0.2), (0.2, 0.9)):
+            assert _named_at(split, "F5a", fx, fy) == "ct", (area, fx, fy)
+        assert _named_at(split, "F5a", 0.7, 0.7) is None, area
         for cell in ("F4c", "F4d"):
             assert _named_at(split, cell, 0.5, 0.9) == "ct", (area, cell)
             assert _named_at(split, cell, 0.5, 0.7) is None, (area, cell)
@@ -2340,32 +2354,42 @@ def test_siten_takana_is_e5ds_right_third_and_also_headshot_kulma() -> None:
 
 def test_boosti_is_his_high_level_only() -> None:
     """His answer 1: "Vain korkea taso". boosti is the right third of D6a
-    and of D6b above the measured edge; the lower level beneath it, and the
-    rest of the two half-cells, keep a site."""
+    and of D6b above the measured edge, and since Story 4.29 D6c's top-right
+    corner above the same edge (his answer 5 of 2026-10-05: players "samalla
+    korkeudella boostin kanssa ovat he boostissa"); the lower level beneath
+    it, and the rest of the three half-cells, keep a site."""
     split = _ancient()["BombsiteA"].split
     boosti = next(p for p in split.parts if p.callout == "boosti")
     (edge,) = {r.z[0] for r in boosti.regions}
     assert {r.z[1] for r in boosti.regions} == {float("inf")}
     assert boosti.confidence == "stated"
-    for cell in ("D6a", "D6b"):
-        assert _named_at(split, cell, 0.9, 0.5, edge) == "boosti", cell
-        assert _named_at(split, cell, 0.9, 0.5, edge - 0.01) is None, cell
-        assert _named_at(split, cell, 0.5, 0.5, edge + 30) is None, cell
+    for cell, fx, fy in (("D6a", 0.9, 0.5), ("D6b", 0.9, 0.5), ("D6c", 0.8, 0.2)):
+        assert _named_at(split, cell, fx, fy, edge) == "boosti", cell
+        assert _named_at(split, cell, fx, fy, edge - 0.01) is None, cell
+    for cell, fx, fy in (("D6a", 0.5, 0.5), ("D6b", 0.5, 0.5), ("D6c", 0.3, 0.2)):
+        assert _named_at(split, cell, fx, fy, edge + 30) is None, cell
+    assert _named_at(split, "D6c", 0.8, 0.7, edge + 30) is None
 
 
-def test_ramp_is_his_six_cells_and_the_b_long_corners_take_one_junction() -> None:
+def test_ramp_is_his_cells_and_the_b_long_corners_take_one_junction() -> None:
     """His "K8a,K8b,K8c,K8d,K9b,K9a ovat ramppia" is one region on BombsiteB's
-    split and TSideLower's, a junction as the game's Ramp; cubby is J8c,
+    split and TSideLower's, a junction as the game's Ramp -- in K9a since
+    Story 4.29 only its right third, the two left thirds his banaani, the
+    area's own lower b long (his answer 8 of 2026-10-05); cubby is J8c,
     transit as lower b long; long toka kulma holds Alley's positions and is
-    built there only, transit, while long eka kulma is BombsiteB's."""
+    built there only, transit, while long eka kulma is BombsiteB's, with
+    K7a's top-right corner since his answer 6."""
     table = _ancient()
     for area in ("BombsiteB", "TSideLower"):
         split = table[area].split
         ramp = next(p for p in split.parts if p.callout == "ramp")
-        assert ramp.cells == ["K8a", "K8b", "K8c", "K8d", "K9b", "K9a"], area
+        assert ramp.cells == ["K8a", "K8b", "K8c", "K8d", "K9b"], area
         assert ramp.junction and table["Ramp"].junction, area
         for cell in ramp.cells:
             assert _named_at(split, cell, 0.5, 0.5) == "ramp", (area, cell)
+        assert _named_at(split, "K9a", 0.7, 0.5) == "ramp", area
+        assert _named_at(split, "K9a", 0.6, 0.5) is None, area
+        assert _named_at(split, "K9a", 0.1, 0.5) is None, area
     lower = table["TSideLower"].split
     assert _named_at(lower, "J8c", 0.5, 0.5) == "cubby"
     assert _named_at(lower, "J9a", 0.5, 0.5) is None
@@ -2377,8 +2401,12 @@ def test_ramp_is_his_six_cells_and_the_b_long_corners_take_one_junction() -> Non
     assert not toka.junction
     assert _named_at(alley, "K6b", 0.8, 0.8) == "long toka kulma"
     assert _named_at(bsite, "K6b", 0.8, 0.8) is None
-    for cell, fx, fy in (("K7b", 0.2, 0.2), ("K6d", 0.2, 0.8), ("K6c", 0.8, 0.8)):
+    for cell, fx, fy in (
+        ("K7b", 0.2, 0.2), ("K6d", 0.2, 0.8), ("K6c", 0.8, 0.8), ("K7a", 0.8, 0.2)
+    ):
         assert _named_at(bsite, cell, fx, fy) == "long eka kulma", cell
+    for fx, fy in ((0.2, 0.2), (0.8, 0.8)):
+        assert _named_at(bsite, "K7a", fx, fy) is None, (fx, fy)
     assert _named_at(bsite, "J7a", 0.8, 0.8) == "site pillar"
     assert _named_at(bsite, "J7c", 0.8, 0.2) == "default plant"
     assert _named_at(bsite, "J7b", 0.2, 0.8) == "long/ramp plant"
@@ -2416,15 +2444,13 @@ _ANCIENT_CONFIDENCE = {
 #: and the lead's decisions on it), pinned the same way. The one table is
 #: read by five splits, and Pit and Ruins write one part each.
 _INFERNO_CONFIDENCE = {
-    # short boost: the window frames as its region are the lead's default
-    # for a question sent to him (#21); minipit: K12a whole is the default
-    # for another (#23); close/brackets: Story 4.20's reading of his guess.
-    # takanurkka: "iujea" read as "oikea" is the lead's typo reading, and
-    # it moves 2 positions; puhujakoroke: its side is a question sent to
-    # him, and the guide draws it mirrored (review round 1, #7 and #8).
-    "inferred": {
-        "short boost", "minipit", "close/brackets", "takanurkka", "puhujakoroke"
-    },
+    # minipit: his K12a corner "vähän isompi" than a quarter is the size
+    # rule's, and a larger corner moves positions (Story 4.29, decision
+    # 4); close/brackets: Story 4.20's reading of his guess. takanurkka:
+    # "iujea" read as "oikea" is the lead's typo reading, and it moves 2
+    # positions. Short boost's frames and puhujakoroke's side, the lead's
+    # defaults in Story 4.28, are his answers 3 and 2 of 2026-10-05.
+    "inferred": {"minipit", "close/brackets", "takanurkka"},
     "stated": {
         # Story 4.20.
         "grill/pool", "ct boost", "ct", "cross", "tree", "auto", "puolimuuri",
@@ -2437,6 +2463,8 @@ _INFERNO_CONFIDENCE = {
         "ykkönen", "kakkonen", "fountain", "coffin", "uudet", "dark", "ruins",
         "truck", "ykkös boksi", "headshot boksi", "longbox", "coldzera boksi",
         "default laatikko", "moto", "pit",
+        # Story 4.29.
+        "short boost", "puhujakoroke",
     },
 }
 
@@ -2529,13 +2557,13 @@ def test_ykkonen_and_kakkonen_are_their_box_tops_and_the_ground_stays_b_site() -
 
 def test_the_window_frames_and_truck_share_j12a_by_height() -> None:
     """Short boost carries his window frames, J12a's top edge above its own
-    band (the default for the question sent to him, so inferred); truck
-    holds the J12a corner below it and J12b's top edge ahead of
-    partsikaytava and balcony; porch keeps the rest of J12a's top third."""
+    band (his answer 3 of 2026-10-05: "voit kutsua niitä samana", so
+    stated); truck holds the J12a corner below it and J12b's top edge ahead
+    of partsikaytava and balcony; porch keeps the rest of J12a's top third."""
     split = _inferno()["BombsiteA"].split
     parts = {p.callout: p for p in split.parts}
     frames = next(r for r in parts["short boost"].regions if r.cell == "J12a")
-    assert frames.y == (0.0, EDGE) and parts["short boost"].confidence == "inferred"
+    assert frames.y == (0.0, EDGE) and parts["short boost"].confidence == "stated"
     assert parts["short boost"].junction
     edge = frames.z[0]
     assert _named_at(split, "J12a", 0.75, 0.1, edge) == "short boost"
@@ -2545,6 +2573,21 @@ def test_the_window_frames_and_truck_share_j12a_by_height() -> None:
         assert _named_at(split, "J12b", fx, 0.1, 260.0) == "truck", fx
     assert _named_at(split, "J12b", 0.25, 0.5, 260.0) == "partsikäytävä"
     assert _named_at(split, "J12b", 0.75, 0.5, 260.0) == "balcony"
+
+
+def test_puhujakoroke_and_minipit_are_where_he_answered() -> None:
+    """His answers 2 and 4 of 2026-10-05 (Story 4.29): puhujakoroke is
+    H4a's top-left and G4b's top-right corner, the guide's side; minipit is
+    K12a's bottom-left corner, not its top edge, and stays on Pit's split."""
+    table = _inferno()
+    ruins, pit = table["Ruins"].split, table["Pit"].split
+    assert _named_at(ruins, "H4a", 0.2, 0.2) == "puhujakoroke"
+    assert _named_at(ruins, "G4b", 0.8, 0.2) == "puhujakoroke"
+    for cell, fx, fy in (("H4a", 0.8, 0.2), ("G4b", 0.2, 0.2), ("H4a", 0.2, 0.8)):
+        assert _named_at(ruins, cell, fx, fy) is None, (cell, fx, fy)
+    assert _named_at(pit, "K12a", 0.2, 0.8) == "minipit"
+    for fx, fy in ((0.2, 0.2), (0.8, 0.8), (0.55, 0.45)):
+        assert _named_at(pit, "K12a", fx, fy) is None, (fx, fy)
 
 
 def test_his_a_boxes_and_corners_are_where_he_put_them() -> None:

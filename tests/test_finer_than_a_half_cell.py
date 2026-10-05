@@ -1171,9 +1171,12 @@ def _in_rects(ticks: pl.DataFrame, split: CellSplit, rects) -> pl.DataFrame:
     return ticks.filter(pl.Series(inside))
 
 
-def _half_cell(split: CellSplit, name: str, y=(0.0, 1.0)):
+def _half_cell(split: CellSplit, name: str, y=(0.0, 1.0), x=(0.0, 1.0)):
     x0, y0, x1, y1 = split._rect_of(split.index_of(name))
-    return (x0, y0 + (y1 - y0) * y[0], x1, y0 + (y1 - y0) * y[1])
+    return (
+        x0 + (x1 - x0) * x[0], y0 + (y1 - y0) * y[0],
+        x0 + (x1 - x0) * x[1], y0 + (y1 - y0) * y[1],
+    )
 
 
 def _band_statement(source: str, edge: float) -> str:
@@ -1245,7 +1248,9 @@ _BANDED = {
     # Story 4.27: boosti, his high level only ("Vain korkea taso"), is the
     # one Ancient site place that passes the rule
     # (ancient-taulukot-2026-10-01.md section 3).
-    "de_ancient.BombsiteA": {("boosti", "D6a"), ("boosti", "D6b")},
+    # Story 4.29: with D6c's top-right corner, his answer 5, measured on
+    # the three regions together at the same edge.
+    "de_ancient.BombsiteA": {("boosti", "D6a"), ("boosti", "D6b"), ("boosti", "D6c")},
     "de_ancient.BombsiteB": set(),
     "de_ancient.TSideLower": set(),
     "de_ancient.Alley": set(),
@@ -1433,7 +1438,8 @@ def test_every_height_band_passes_the_band_rule_at_its_largest_gap(
 
 
 #: The places he names by height that the rule refuses a band, each with the
-#: part whose source says so: (map, the part, half-cells, a y range of them).
+#: part whose source says so: (map, the part, half-cells, a y range of them,
+#: and optionally an x range).
 #: With no half-cells given, the place is the part's own claim, its cells and
 #: its regions. An entry on fewer than 10 ticks is LATENT UNTIL THE ARCHIVE
 #: GROWS: a level needs 5, so it can hardly pass, and the test is a guard
@@ -1481,6 +1487,15 @@ _ONE_LEVEL = {
     "ykkos boksi's top": ("de_inferno", "ykkös boksi", None, None),
     "coldzera boksi's top": ("de_inferno", "coldzera boksi", None, None),
     "the truck's top": ("de_inferno", "truck", None, None),
+    # Story 4.29 (the lead's decision 1): ykkonen's lower box, his answer
+    # 1, on the two regions that hold it, with an x range: G5d's left edge
+    # (the size rule's) and the crossing's G5d quarter.
+    "ykkonen's lower box on G5d's left edge": (
+        "de_inferno", "ykkönen", ["G5d"], (0.0, 1.0), (0.0, 0.25)
+    ),
+    "ykkonen's lower box in the crossing's G5d quarter": (
+        "de_inferno", "ykkönen", ["G5d"], (0.5, 1.0), (0.0, 0.5)
+    ),
 }
 
 
@@ -1490,7 +1505,7 @@ def test_every_place_built_without_a_band_fails_the_band_rule(place: str) -> Non
     """The other direction: every place he names by height that is built
     without a band fails the rule on the archive, and its part's source says
     it fails. The balcony's place is its own regions."""
-    key, callout, cells, y = _ONE_LEVEL[place]
+    key, callout, cells, y, *x = _ONE_LEVEL[place]
     split = _table()[_map_of(key)][_PART_SPLITS[key][0]].split
     part = next(p for p in split.parts if p.callout == callout)
     if cells is None:
@@ -1498,7 +1513,7 @@ def test_every_place_built_without_a_band_fails_the_band_rule(place: str) -> Non
             split._region_rect(part, r) for r in part.regions
         ]
     else:
-        rects = [_half_cell(split, c, y) for c in cells]
+        rects = [_half_cell(split, c, y, *x) for c in cells]
     ticks = _on_floor(_live_ticks(require_parsed(), _map_of(key)), split)
     place_ticks = _in_rects(ticks, split, rects)
     assert not _levels(place_ticks["z"])[0], place

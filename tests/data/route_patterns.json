@@ -6828,42 +6828,6 @@
           "newest": null,
           "path": [
             [
-              "b doors",
-              "inferred",
-              null,
-              null
-            ],
-            [
-              "ramp",
-              null,
-              null,
-              null
-            ],
-            [
-              "b site",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              1,
-              5,
-              1
-            ],
-            [
-              1,
-              6,
-              1
-            ]
-          ],
-          "stayed": true
-        },
-        {
-          "newest": null,
-          "path": [
-            [
               "t-kuutio",
               null,
               null,
@@ -8149,6 +8113,6 @@
       "patterns": []
     }
   },
-  "measured": "2026-10-02",
+  "measured": "2026-10-05",
   "note": "Every recorded team's pistol, eco, force, half-buy and default block: the route-pattern lines the report prints and every recurring path report.json holds (Stories 4.14, 4.19 and 4.22). A round is [demo place in the map's newest-first list, round number, players]. Written by running tests/test_calibration.py's _pattern_blocks_from over the archive; re-measure, do not hand-edit."
 }
