@@ -2167,6 +2167,12 @@ def routes_for(
     Story 4.19, share its paths through :func:`_round_paths` and not its
     trees: they strip the spawn first, and the trees stay as they are.
 
+    **A route reads players at the sample points only** (``ticks`` below:
+    ``[parse].snapshot_seconds``, 3 s apart in ``settings.toml``), so a place
+    a player crosses between two samples is missing from his path. Story
+    4.29 met it on de_ancient: a T player who climbed the ramp between two
+    samples reads no ramp (the ramp part's source in ``callouts.toml``).
+
     **A row for every round, including one with no route.** A round settled
     inside the first sample point produces a :class:`RoundRoute` with no
     steps, which the report states; dropping it would leave the block's

@@ -942,10 +942,22 @@ _READ_AS = re.compile(
 #: to a Finnish ending (*E8b:hen*, *G11dja*), with his range form *F9a-d*.
 #: Story 4.24: a half-cell his words name, left out as a known limit.
 _KNOWN_LIMIT = re.compile(r"KNOWN LIMIT, ([A-P][0-9]+[a-d]):")
-#: Story 4.26: a half-cell his words name only to say the place is not
-#: there ("Big box ei ole ollenkaan B2d:n ruudussa") -- a negation of his,
-#: not a limit of the table.
+#: Story 4.26, widened in Story 4.29: a half-cell his quoted words write
+#: that is not a cell of this place, for the reason after the colon -- his
+#: negation ("Big box ei ole ollenkaan B2d:n ruudussa"), or an example in
+#: his rule (ykkonen's H5c and F5a, heights) -- not a limit of the table.
 _NOT_HIS = re.compile(r"NOT HIS, ([A-P][0-9]+[a-d]):")
+#: Story 4.29: a half-cell he gives a place named like a game area, which
+#: that area's own line divides inside his fraction (the header's THE
+#: GAME'S LINE), with his fraction quoted: the area prints its own name
+#: there, so the part holds no region in it.
+_GAMES_LINE = re.compile(r"THE GAME'S LINE, ([A-P][0-9]+[a-d]): '([^']*)'")
+#: Story 4.29: a half-cell a recorded question named and his answer put the
+#: callout in (the header's THE ASKED CELL), listed in
+#: tests/data/asked_cells.json.
+_ASKED_CELL = re.compile(
+    r"the asked cell ([A-P][0-9]+[a-d]) \(([\w.-]+\.md), question (\d+)\)"
+)
 #: Story 4.24: a region the lead reads from his words that name no
 #: half-cell for it, with those words: "the lead's region C6d from '...'".
 _LEAD_REGION = re.compile(r"the lead's region ([A-P][0-9]+[a-d]) from '([^']*)'")
@@ -990,12 +1002,8 @@ _WHOLE = (0.0, 1.0)
 #: half by half corner (his own corner size, "puolet korkeudesta ja
 #: leveydestä").
 _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
-    # Story 4.29, his eight answers (vastaukset-2026-10-05.md). His "nuo"
-    # (those points) are the ones the question named in D6c: the header's
-    # asked cell, its top-right corner the lead's region of it, which moves
-    # no position against D6c whole (decision 5).
-    ("jos nuo ovat pelaajia", ((0.5, 1.0), (0.0, 0.5))),
-    # A corner he did not quantify: half by half (the size rule).
+    # Story 4.29, his eight answers (vastaukset-2026-10-05.md). A corner he
+    # did not quantify: half by half (the size rule).
     ("oikea yläkulma", ((0.5, 1.0), (0.0, 0.5))),
     # Story 4.28, his Inferno site answer (vastaus-inferno-sitet-2026-10-02.md).
     # The fountain's top halves, in his plural.
@@ -1098,6 +1106,9 @@ _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
     ("alakolmannes", (_WHOLE, (2 / 3, 1.0))),
     ("ala kolmannes", (_WHOLE, (2 / 3, 1.0))),
     ("yläkolmannes", (_WHOLE, (0.0, 1 / 3))),
+    # Story 4.29: minipit's words hold two terms, "K12a yläreuna ei ole
+    # minipitissä, enemmänkin vasen alanurkka ...": the corner decides only
+    # because this entry comes before "yläreuna", which his words deny it.
     ("vasen alanurkka", ((0.0, 0.5), (0.5, 1.0))),
     # A3: "yläreuna crossia ja alapuolisko yläbanaania" -- the top is the
     # half the bottom half leaves (the lead's reading, not the edge rule).
@@ -1242,8 +1253,15 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
     # 'KNOWN LIMIT, <half-cell>:', and the part does not hold it.
     limits = set(_KNOWN_LIMIT.findall(part.source))
     negated = set(_NOT_HIS.findall(part.source))
+    # Story 4.29: a half-cell the game's own line divides inside his
+    # fraction, which his quoted words write.
+    lines = dict(_GAMES_LINE.findall(part.source))
+    for cell, fraction in lines.items():
+        assert any(fraction in quote for quote in quotes), (part.callout, fraction)
+        assert cell in _free_cells(fraction), (part.callout, cell)
     assert not limits & negated, (part.callout, limits & negated)
-    left_out = limits | negated
+    assert not (limits | negated) & set(lines), (part.callout, set(lines))
+    left_out = limits | negated | set(lines)
     assert left_out <= written_cells, (part.callout, left_out)
     # And a region his words give no half-cell for is the lead's, quoted
     # with the words it rests on, and makes the part inferred.
@@ -1251,12 +1269,15 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
     for cell, words in leads.items():
         assert any(words in quote for quote in quotes), (part.callout, words)
         assert part.confidence == "inferred", (part.callout, cell)
+    # Story 4.29: a half-cell the recorded question named is his (the
+    # header's asked cell); tests/data/asked_cells.json lists each one.
+    asked = {cell for cell, _, _ in _ASKED_CELL.findall(part.source)}
     held = set(part.cells)
     for region in part.regions:
         held |= {region.cell} if region.cell else set(region.crossing)
     assert not left_out & held, (part.callout, left_out & held)
-    assert (written_cells - left_out) | set(leads) == held, (
-        part.callout, ((written_cells - left_out) | set(leads)) ^ held
+    assert (written_cells - left_out) | set(leads) | asked == held, (
+        part.callout, ((written_cells - left_out) | set(leads) | asked) ^ held
     )
     groups: dict[tuple[str, str], list] = {}
     for region in part.regions:
@@ -1269,7 +1290,7 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
             if "yhden ruudun kokoinen" in region.words:
                 assert region.size == 1.0, region.words
         else:
-            if leads.get(region.cell) == region.words:
+            if leads.get(region.cell) == region.words or region.cell in asked:
                 named.add(region.cell)
             assert region.cell in named, (region.cell, region.words)
             groups.setdefault((region.cell, region.words), []).append(region)
@@ -2043,6 +2064,35 @@ def test_every_fraction_word_decides_a_region() -> None:
     assert [t for t, _ in _FRACTION_WORDS if t not in used] == []
 
 
+#: The asked cells, as listed in the repository (the header's THE ASKED
+#: CELL, Story 4.29): the machine-readable part of the questions he
+#: answered, whose words live outside the repository.
+ASKED_CELLS_PATH = Path(__file__).parent / "data" / "asked_cells.json"
+
+
+def _asked_cells() -> set[tuple[str, str, str, str, int]]:
+    import json
+
+    listed = json.loads(ASKED_CELLS_PATH.read_text(encoding="utf-8"))["cells"]
+    return {
+        (e["map"], e["part"], e["cell"], e["answers"], e["question"]) for e in listed
+    }
+
+
+def test_every_asked_cell_is_listed_and_every_listed_one_is_read() -> None:
+    """Story 4.29 (the architect review): a source's "the asked cell
+    <half-cell> (<answers>, question <n>)" is in tests/data/asked_cells.json,
+    and every entry there is a reading some part's source makes -- so an
+    asked cell cannot be added, or dropped, in one place only."""
+    found = set()
+    for map_name, table in load_callouts(_POOL).items():
+        for entry in table.values():
+            for part in entry.split.parts if entry.split else []:
+                for cell, answers, question in _ASKED_CELL.findall(part.source):
+                    found.add((map_name, part.callout, cell, answers, int(question)))
+    assert found == _asked_cells()
+
+
 # -- Story 4.26: Dust2's sites -------------------------------------------------
 
 
@@ -2365,21 +2415,24 @@ def test_siten_takana_is_e5ds_right_third_and_also_headshot_kulma() -> None:
 
 def test_boosti_is_his_high_level_only() -> None:
     """His answer 1: "Vain korkea taso". boosti is the right third of D6a
-    and of D6b above the measured edge, and since Story 4.29 D6c's top-right
-    corner above the same edge (his answer 5 of 2026-10-05: players "samalla
-    korkeudella boostin kanssa ovat he boostissa"); the lower level beneath
-    it, and the rest of the three half-cells, keep a site."""
+    and of D6b above the measured edge, and since Story 4.29 D6c whole above
+    the same edge, the asked cell of his answer 5 of 2026-10-05 (players
+    "samalla korkeudella boostin kanssa ovat he boostissa"); the lower level
+    beneath it, and the rest of D6a and D6b, keep a site."""
     split = _ancient()["BombsiteA"].split
     boosti = next(p for p in split.parts if p.callout == "boosti")
     (edge,) = {r.z[0] for r in boosti.regions}
     assert {r.z[1] for r in boosti.regions} == {float("inf")}
     assert boosti.confidence == "stated"
-    for cell, fx, fy in (("D6a", 0.9, 0.5), ("D6b", 0.9, 0.5), ("D6c", 0.8, 0.2)):
-        assert _named_at(split, cell, fx, fy, edge) == "boosti", cell
-        assert _named_at(split, cell, fx, fy, edge - 0.01) is None, cell
-    for cell, fx, fy in (("D6a", 0.5, 0.5), ("D6b", 0.5, 0.5), ("D6c", 0.3, 0.2)):
-        assert _named_at(split, cell, fx, fy, edge + 30) is None, cell
-    assert _named_at(split, "D6c", 0.8, 0.7, edge + 30) is None
+    d6c = next(r for r in boosti.regions if r.cell == "D6c")
+    assert (d6c.x, d6c.y) == (_WHOLE, _WHOLE)
+    for cell, fx, fy in (
+        ("D6a", 0.9, 0.5), ("D6b", 0.9, 0.5), ("D6c", 0.8, 0.2), ("D6c", 0.2, 0.8)
+    ):
+        assert _named_at(split, cell, fx, fy, edge) == "boosti", (cell, fx, fy)
+        assert _named_at(split, cell, fx, fy, edge - 0.01) is None, (cell, fx, fy)
+    for cell in ("D6a", "D6b"):
+        assert _named_at(split, cell, 0.5, 0.5, edge + 30) is None, cell
 
 
 def test_ramp_is_his_cells_and_the_b_long_corners_take_one_junction() -> None:

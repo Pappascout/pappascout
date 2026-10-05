@@ -1498,13 +1498,23 @@ _ONE_LEVEL = {
         "de_inferno", "ykkönen", ["G5d"], (0.5, 1.0), (0.0, 0.5)
     ),
 }
-#: The ticks a measured place must hold, (z from, z to, how many), so an
-#: entry pointed at the wrong rectangle fails rather than passes on
-#: whatever it finds there (Story 4.29 review): ykkonen's lower box at
-#: z 189 to 193, 3 ticks on G5d's left edge and 7 in the crossing's quarter.
+#: The ticks a measured place must hold, so an entry pointed at the wrong
+#: rectangle fails rather than passes on whatever it finds there (Story
+#: 4.29 reviews): (z from, z to, the pattern that reads how many from the
+#: part's source), the z range HALF-OPEN, from <= z < to -- ykkonen's lower
+#: box at z 189 to 193 on G5d's left edge and in the crossing's G5d
+#: quarter, and the K9a box's 15 top ticks (z 118 to 126; the next tick
+#: under them is at 96).
 _ONE_LEVEL_HOLDS = {
-    "ykkonen's lower box on G5d's left edge": (185.0, 195.0, 3),
-    "ykkonen's lower box in the crossing's G5d quarter": (185.0, 195.0, 7),
+    "ykkonen's lower box on G5d's left edge": (
+        185.0, 195.0, r"the size rule's quarter, which holds (\d+) of them"
+    ),
+    "ykkonen's lower box in the crossing's G5d quarter": (
+        185.0, 195.0, r"(\d+) in its G5d quarter"
+    ),
+    "the K9a box beside the ramp's foot, held by no part": (
+        100.0, INF, r"all (\d+) of its top ticks"
+    ),
 }
 
 
@@ -1532,10 +1542,87 @@ def test_every_place_built_without_a_band_fails_the_band_rule(place: str) -> Non
     place_ticks = _in_rects(ticks, split, rects)
     assert not _levels(place_ticks["z"])[0], place
     if place in _ONE_LEVEL_HOLDS:
-        low, high, count = _ONE_LEVEL_HOLDS[place]
+        low, high, pattern = _ONE_LEVEL_HOLDS[place]
+        stated = re.search(pattern, part.source)
+        assert stated, (place, pattern)
         held = place_ticks.filter((pl.col("z") >= low) & (pl.col("z") < high))
-        assert held.height == count, (place, held.height)
+        assert held.height == int(stated[1]), (place, held.height)
     assert "fails the band rule" in part.source or "NOT BUILT" in part.source, place
+
+
+def _part_and_split(map_name: str, callout: str):
+    """The first registered split of the map that holds a part so named."""
+    for key in sorted(_PART_SPLITS):
+        if _map_of(key) != map_name:
+            continue
+        split = _table()[map_name][_PART_SPLITS[key][0]].split
+        for part in split.parts:
+            if part.callout == callout:
+                return part, split
+    raise AssertionError((map_name, callout))
+
+
+@pytest.mark.archive
+def test_the_games_line_divides_his_half_cell_inside_his_fraction() -> None:
+    """THE GAME'S LINE (the header, Story 4.29, the architect review): in a
+    half-cell he gives a place named like a game area, that area's live
+    ticks and every other area's do not overlap across the half-cell, and
+    the line between them lies at or above the start of his fraction -- so
+    the area's own name prints his place there and no region is needed.
+    Ancient's ramp in K9a, on both twins: the game's Ramp from x 0.712,
+    TSideLower to 0.688, his third from 2/3."""
+    from test_cell_split import _GAMES_LINE, _fraction_of
+
+    root = require_parsed()
+    found = 0
+    for key in sorted(_PART_SPLITS):
+        table = _table()[_map_of(key)]
+        split = table[_PART_SPLITS[key][0]].split
+        named_like = {e.callout: a for a, e in table.items() if e.callout}
+        for part in split.parts:
+            for cell, fraction in _GAMES_LINE.findall(part.source):
+                found += 1
+                (start, end), _ = _fraction_of(fraction)
+                # The one form shipped: his fraction runs to the right edge.
+                assert end == 1.0, (part.callout, fraction)
+                ticks = _on_floor(_live_ticks(root, _map_of(key)), split)
+                x0, _, x1, _ = _half_cell(split, cell)
+                inside = _in_rects(ticks, split, [_half_cell(split, cell)])
+                fx = (inside["x"] * split.fit.sx + split.fit.bx - x0) / (x1 - x0)
+                inside = inside.with_columns(fx.alias("fx"))
+                area = named_like[part.callout]
+                own = inside.filter(pl.col("area") == area)["fx"]
+                rest = inside.filter(pl.col("area") != area)["fx"]
+                assert own.len() and rest.len(), (part.callout, cell)
+                assert rest.max() < own.min(), (part.callout, rest.max(), own.min())
+                assert rest.max() >= start, (part.callout, rest.max(), start)
+    assert found == 2, found
+
+
+@pytest.mark.archive
+def test_an_asked_cell_moves_no_position_against_the_whole_cell() -> None:
+    """THE ASKED CELL (the header, Story 4.29): a fraction of an asked cell
+    would be the lead's region, so the regions a part holds in its asked
+    cell take, band for band, the same live ticks as the whole cell. With
+    boosti's D6c built whole (the architect review) the check is trivial:
+    the region is the cell. It guards the day a fraction is built."""
+    from test_cell_split import _asked_cells
+
+    root = require_parsed()
+    for map_name, callout, cell, _, _ in sorted(_asked_cells()):
+        part, split = _part_and_split(map_name, callout)
+        regions = [r for r in part.regions if r.cell == cell]
+        assert regions, (callout, cell)
+        ticks = _on_floor(_live_ticks(root, map_name), split)
+        for band in {r.z for r in regions}:
+            rects = [split._region_rect(part, r) for r in regions if r.z == band]
+            own = _in_rects(ticks, split, rects)
+            whole = _in_rects(ticks, split, [_half_cell(split, cell)])
+            if band is not None:
+                low, high = band
+                inband = (pl.col("z") >= low) & (pl.col("z") < high)
+                own, whole = own.filter(inband), whole.filter(inband)
+            assert own.height == whole.height, (callout, cell, own.height, whole.height)
 
 
 @pytest.mark.archive

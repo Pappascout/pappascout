@@ -1,0 +1,12 @@
+{
+  "cells": [
+    {
+      "answers": "vastaukset-2026-10-05.md",
+      "cell": "D6c",
+      "map": "de_ancient",
+      "part": "boosti",
+      "question": 5
+    }
+  ],
+  "note": "Every asked cell of callouts.toml (the header's THE ASKED CELL, Story 4.29): a half-cell a recorded question named and the product owner's answer put the callout in. The questions are recorded in the answer document's section 'The questions as asked', which lives outside the repository; this file is the machine-readable part, held to the table by tests/test_cell_split.py, so a reading cannot be added or dropped in one place only."
+}
