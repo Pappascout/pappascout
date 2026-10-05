@@ -990,13 +990,10 @@ _WHOLE = (0.0, 1.0)
 #: half by half corner (his own corner size, "puolet korkeudesta ja
 #: leveydestä").
 _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
-    # Story 4.29, his eight answers (vastaukset-2026-10-05.md). Minipit's
-    # corner "a little larger than a quarter square" is the size rule's
-    # corner: "vähän isompi" says not how much (the lead's decision 4, so
-    # minipit is inferred) -- before "yläreuna", which his words deny it.
-    ("enemmänkin vasen alanurkka", ((0.0, 0.5), (0.5, 1.0))),
-    # His "nuo" (those points) are the ones the lead's question placed in
-    # D6c's top-right corner, half by half (decision 5).
+    # Story 4.29, his eight answers (vastaukset-2026-10-05.md). His "nuo"
+    # (those points) are the ones the question named in D6c: the header's
+    # asked cell, its top-right corner the lead's region of it, which moves
+    # no position against D6c whole (decision 5).
     ("jos nuo ovat pelaajia", ((0.5, 1.0), (0.0, 0.5))),
     # A corner he did not quantify: half by half (the size rule).
     ("oikea yläkulma", ((0.5, 1.0), (0.0, 0.5))),
@@ -1176,6 +1173,15 @@ def _fraction_of(words: str) -> tuple[tuple[float, float], tuple[float, float]]:
     return _WHOLE, _WHOLE
 
 
+def _is_the_rest(words: str) -> bool:
+    """His words give the part the half-cell less their fraction: "mutta
+    ei" (but not), or the word "loput" (the rest: Story 4.29, "F5a:n oikea
+    alanurkka on siteä loput CT:tä") -- the header's reading rule beside
+    "miinus, paitsi"."""
+    lower = words.lower()
+    return "mutta ei" in lower or re.search(r"\bloput\b", lower) is not None
+
+
 def _samples(x: tuple[float, float], y: tuple[float, float]) -> set:
     """The sample points of a fraction on a 60 x 60 lattice of the half-cell
     -- 60 is divisible by every size he used (1/2 ... 1/6) and by EDGE."""
@@ -1217,7 +1223,10 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
     region's ``x`` / ``y`` in ``callouts.toml`` (only the lead's EDGE is read
     from one place, the header), so a size copied identically wrong into
     both passes here. So do the sub-counts a source writes in prose (z
-    ranges, "5 live ticks in B3a"), and a misquote copied into both.
+    ranges, "5 live ticks in B3a"), and a misquote copied into both. So do
+    the sentences that record a question he settled (Story 4.29, decision
+    9: "asked ..., he answered (vastaukset-2026-10-05.md, answer N)"):
+    which question and which answer are prose, held by no test.
     """
     quotes = _HIS_WORDS.findall(part.source)
     assert quotes, part.callout
@@ -1287,9 +1296,7 @@ def _check_his_words(split: CellSplit, part: CellPart) -> None:
     for (cell, words), regions in groups.items():
         x, y = _fraction_of(words)
         expected = _samples(x, y)
-        # "mutta ei" (but not), and "loput" (the rest: Story 4.29, "F5a:n
-        # oikea alanurkka on siteä loput CT:tä") give the part the rest.
-        if "mutta ei" in words or "loput" in words:
+        if _is_the_rest(words):
             expected = _samples(_WHOLE, _WHOLE) - expected
         actual = set().union(*(_samples(r.x, r.y) for r in regions))
         assert actual == expected, (part.callout, cell, words)
@@ -1311,6 +1318,10 @@ def test_the_word_reader_reads_his_free_text() -> None:
         (0.5, 1.0), (0.5, 1.0)
     )
     assert _fraction_of("E12a kohdissa secondin päällä") == (_WHOLE, _WHOLE)
+    # Story 4.29: "loput" is read as a word, in any case; "mutta ei" too.
+    assert _is_the_rest("F5a:n oikea alanurkka on siteä Loput CT:tä")
+    assert _is_the_rest("J12A (Mutta ei oikea alareuna)")
+    assert not _is_the_rest("I9a oikea reuna, putkiloputki")
     assert len(_samples((0.0, EDGE), _WHOLE)) == 15 * 60
 
 
@@ -2373,9 +2384,10 @@ def test_boosti_is_his_high_level_only() -> None:
 
 def test_ramp_is_his_cells_and_the_b_long_corners_take_one_junction() -> None:
     """His "K8a,K8b,K8c,K8d,K9b,K9a ovat ramppia" is one region on BombsiteB's
-    split and TSideLower's, a junction as the game's Ramp -- in K9a since
-    Story 4.29 only its right third, the two left thirds his banaani, the
-    area's own lower b long (his answer 8 of 2026-10-05); cubby is J8c,
+    split and TSideLower's, a junction as the game's Ramp -- since Story 4.29
+    without K9a: his answer 8 of 2026-10-05 puts the ramp right of the box's
+    right edge, which is the game's own Ramp line there, so K9a's ramp is
+    the game's Ramp and the rest his banaani, the area's lower b long; cubby is J8c,
     transit as lower b long; long toka kulma holds Alley's positions and is
     built there only, transit, while long eka kulma is BombsiteB's, with
     K7a's top-right corner since his answer 6."""
@@ -2387,9 +2399,10 @@ def test_ramp_is_his_cells_and_the_b_long_corners_take_one_junction() -> None:
         assert ramp.junction and table["Ramp"].junction, area
         for cell in ramp.cells:
             assert _named_at(split, cell, 0.5, 0.5) == "ramp", (area, cell)
-        assert _named_at(split, "K9a", 0.7, 0.5) == "ramp", area
-        assert _named_at(split, "K9a", 0.6, 0.5) is None, area
-        assert _named_at(split, "K9a", 0.1, 0.5) is None, area
+        assert not ramp.regions, area
+        for fx in (0.1, 0.6, 0.9):
+            assert _named_at(split, "K9a", fx, 0.5) is None, (area, fx)
+    assert table["Ramp"].callout == "ramp" and table["Ramp"].split is None
     lower = table["TSideLower"].split
     assert _named_at(lower, "J8c", 0.5, 0.5) == "cubby"
     assert _named_at(lower, "J9a", 0.5, 0.5) is None

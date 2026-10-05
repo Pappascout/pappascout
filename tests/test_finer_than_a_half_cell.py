@@ -21,6 +21,7 @@ import pytest
 
 from conftest import REAL_SETTINGS, require_parsed
 from pappascout.domain.models import (
+    CellRegion,
     CellSplit,
     load_callouts,
     load_settings,
@@ -1171,12 +1172,9 @@ def _in_rects(ticks: pl.DataFrame, split: CellSplit, rects) -> pl.DataFrame:
     return ticks.filter(pl.Series(inside))
 
 
-def _half_cell(split: CellSplit, name: str, y=(0.0, 1.0), x=(0.0, 1.0)):
+def _half_cell(split: CellSplit, name: str, y=(0.0, 1.0)):
     x0, y0, x1, y1 = split._rect_of(split.index_of(name))
-    return (
-        x0 + (x1 - x0) * x[0], y0 + (y1 - y0) * y[0],
-        x0 + (x1 - x0) * x[1], y0 + (y1 - y0) * y[1],
-    )
+    return (x0, y0 + (y1 - y0) * y[0], x1, y0 + (y1 - y0) * y[1])
 
 
 def _band_statement(source: str, edge: float) -> str:
@@ -1477,8 +1475,11 @@ _ONE_LEVEL = {
         "de_ancient.BombsiteA", "brokyssä", None, None
     ),
     "the site boxes in E5d": ("de_ancient.BombsiteA", "site boksit", None, None),
-    "the box at the ramp's foot": (
-        "de_ancient.BombsiteB", "ramp", ["K9a"], (0.0, 1.0)
+    # Since Story 4.29 no part holds K9a (his answer 8: the ramp is right
+    # of the box's edge, the game's own Ramp line); the box lies on
+    # TSideLower's lower b long, and the ramp's source records the refusal.
+    "the K9a box beside the ramp's foot, held by no part": (
+        "de_ancient.TSideLower", "ramp", ["K9a"], (0.0, 1.0)
     ),
     # Story 4.28: the Inferno boxes he names by height, the truck and the
     # fountain's rim (inferno-taulukot-2026-10-02.md section 3).
@@ -1497,6 +1498,14 @@ _ONE_LEVEL = {
         "de_inferno", "ykkönen", ["G5d"], (0.5, 1.0), (0.0, 0.5)
     ),
 }
+#: The ticks a measured place must hold, (z from, z to, how many), so an
+#: entry pointed at the wrong rectangle fails rather than passes on
+#: whatever it finds there (Story 4.29 review): ykkonen's lower box at
+#: z 189 to 193, 3 ticks on G5d's left edge and 7 in the crossing's quarter.
+_ONE_LEVEL_HOLDS = {
+    "ykkonen's lower box on G5d's left edge": (185.0, 195.0, 3),
+    "ykkonen's lower box in the crossing's G5d quarter": (185.0, 195.0, 7),
+}
 
 
 @pytest.mark.archive
@@ -1513,10 +1522,19 @@ def test_every_place_built_without_a_band_fails_the_band_rule(place: str) -> Non
             split._region_rect(part, r) for r in part.regions
         ]
     else:
-        rects = [_half_cell(split, c, y, *x) for c in cells]
+        # The loader's own rectangle for a fraction, an x range included.
+        x_range = x[0] if x else (0.0, 1.0)
+        rects = [
+            split._region_rect(part, CellRegion(cell=c, x=x_range, y=y, words=place))
+            for c in cells
+        ]
     ticks = _on_floor(_live_ticks(require_parsed(), _map_of(key)), split)
     place_ticks = _in_rects(ticks, split, rects)
     assert not _levels(place_ticks["z"])[0], place
+    if place in _ONE_LEVEL_HOLDS:
+        low, high, count = _ONE_LEVEL_HOLDS[place]
+        held = place_ticks.filter((pl.col("z") >= low) & (pl.col("z") < high))
+        assert held.height == count, (place, held.height)
     assert "fails the band rule" in part.source or "NOT BUILT" in part.source, place
 
 

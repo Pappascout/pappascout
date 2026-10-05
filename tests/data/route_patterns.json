@@ -6742,6 +6742,42 @@
               null,
               null,
               null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              3,
+              1
+            ],
+            [
+              1,
+              2,
+              1
+            ]
+          ],
+          "stayed": true
+        },
+        {
+          "newest": null,
+          "path": [
+            [
+              "water",
+              null,
+              null,
+              null
+            ],
+            [
+              "b doors",
+              "inferred",
+              null,
+              null
+            ],
+            [
+              "upper b long",
+              null,
+              null,
+              null
             ],
             [
               "dig",
@@ -6793,36 +6829,6 @@
             ]
           ],
           "stayed": true
-        },
-        {
-          "newest": null,
-          "path": [
-            [
-              "b doors",
-              "inferred",
-              null,
-              null
-            ],
-            [
-              "ramp",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              1,
-              2,
-              2
-            ],
-            [
-              1,
-              10,
-              2
-            ]
-          ],
-          "stayed": false
         },
         {
           "newest": null,
