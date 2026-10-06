@@ -2027,7 +2027,16 @@ def test_one_place_on_one_floor_is_one_region() -> None:
     oikea in BombsiteB's and Ramp's, and Inferno's borrowed table. And a
     part whose source says it is the same place as a part of another
     split on its floor is among them, so the sentence cannot name a twin
-    that differs."""
+    that differs. The rule is read where the header writes it (ONE PLACE ON
+    ONE FLOOR IS ONE REGION, Winston's review of Story 4.30), so a header
+    that loosened it fails here."""
+    assert re.search(
+        r"ONE PLACE ON ONE FLOOR IS ONE REGION \(Story 4\.25, written here in Story "
+        r"4\.30\): parts of one callout on two splits of one map whose floors overlap "
+        r"are one place, so they hold the same half-cells, regions and boxes and "
+        r"carry one junction and one confidence",
+        _header_text(),
+    ), "the header does not state one place on one floor"
     checked = set()
     table_of = load_callouts(_POOL)
     for map_name, table in table_of.items():

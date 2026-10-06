@@ -291,21 +291,26 @@
 #                      alareuna', 'yläoikeasta reunasta') is that corner. A
 #                      part's source says where it rests on this rule. AN
 #                      EXTENT HE HEDGES WITH 'NOIN' (Story 4.30, the review of
-#                      Story 4.30): a corner he gives 'noin' (about) is the
-#                      size rule's corner, but its extent is ours, so the part
-#                      is inferred where a corner of 0.4 or of 0.6 of the
-#                      half-cell takes other positions than the 0.5 one, and
-#                      stays stated where all three take the same (Inferno's
-#                      default laatikko, 2 each); its source writes the three
-#                      counts, and -m archive re-derives them (Anubis's newbox
-#                      and koroke; Story 4.29 measured minipit so). HIS CELLS
-#                      BY THE POSITIONS (Story 4.30, spec-4-30-anubis-sites.md
-#                      decision 2): where he gives a place's half-cells by the
-#                      positions he was shown and they differ from where the
-#                      guide draws it, his cells by the positions win, the
-#                      guide's cell is recorded in the source, and the part
-#                      stays stated, because they are his cells (Anubis's
-#                      pizza: the guide draws C6c, he gives B7b, B6d and C6c).
+#                      Story 4.30), FOR A CORNER: a corner whose words he
+#                      hedges with 'noin' (about) is half by half, by the size
+#                      rule or by his own quarter, but its extent is ours, so
+#                      the part is inferred where a corner of 0.4 or of 0.6 of
+#                      the half-cell takes other positions than the 0.5 one,
+#                      and stays stated where all three take the same
+#                      (Inferno's default laatikko, 2 each); its source writes
+#                      the three counts, and -m archive re-derives them
+#                      (Anubis's newbox and koroke; Story 4.29 measured minipit
+#                      so). It reads corners only: the other extents he hedges
+#                      with 'noin' -- an edge's depth, a third, Inferno's
+#                      balcony 'noin neljäsosa ruudusta' -- are reviewed in
+#                      Story 4.31. HIS CELLS BY THE POSITIONS (Story 4.30,
+#                      spec-4-30-anubis-sites.md decision 2): where he gives a
+#                      place's half-cells by the positions he was shown and
+#                      they differ from where the guide draws it, his cells by
+#                      the positions win, the guide's cell is recorded in the
+#                      source, and the part stays stated, because they are his
+#                      cells (Anubis's pizza: the guide draws C6c, he gives
+#                      B7b, B6d and C6c).
 #                      A RISTEYS OF TWO (Story 4.26). His "risteys", in any
 #                      inflection (risteyksessä, risteyksen: the tests read
 #                      risteys and risteyks), names a crossing box only
@@ -317,12 +322,18 @@
 #                      fraction on each side.
 #                      Its limit: reading his risteys of two as the edge is the
 #                      lead's (Story 4.26), not his words', so such a part is
-#                      inferred where it moves positions. Where his words add
+#                      inferred where it moves positions -- where the edge's
+#                      quarters take live ticks of the split's areas that the
+#                      part would not hold without them. Where his words add
 #                      the side or the corner of the edge ('niiden vasemmassa
 #                      ala ja yläreunassa', 'oikea ylänurkka'), those words are
 #                      his, the size rule above -- his since 2026-09-28 --
 #                      reads them, and the part is stated (Story 4.30: Anubis's
-#                      dark tolppa; Inferno's coffin).
+#                      dark tolppa; Inferno's coffin). Where his words give the
+#                      half-cells whole and a height, no edge is read, and the
+#                      part is stated by his height words: Dust2's window (A3
+#                      of the Story 4.26 review), C2b and C2d whole above its
+#                      band.
 #                      It departs from the lead's decision 5 of spec-4-26
 #                      (a crossing uses the Story 4.20 crossing form), which
 #                      cannot hold two half-cells, and from postimerkki's
@@ -409,12 +420,17 @@
 #                      area, or a second transit area -- is built on the split
 #                      of the area that holds most of them only, and its other
 #                      positions keep their own area's callout -- because one
-#                      callout has one junction, and one place is built once.
-#                      Its source writes the counts in one form, 'Its own spots
-#                      hold <n> <Area> and <m> <Area> live ticks' -- the map's
-#                      live ticks the part claims first on its split, by game
-#                      area -- and -m archive re-derives them. Where the
-#                      place's positions are decides it,
+#                      callout has one junction. It decides where a place is
+#                      built only when no earlier clause fixes the junction,
+#                      and place-twins under ONE PLACE ON ONE FLOOR IS ONE
+#                      REGION stay allowed (Dust2's ct cross, on LongA's and
+#                      UnderA's splits). Its source writes the counts in one
+#                      form, 'Its own spots hold <n> <Area> and <m> <Area> live
+#                      ticks' -- the map's live ticks the part claims first on
+#                      its split, by game area -- and -m archive re-derives
+#                      them; the form is required from Story 4.30 on, and the
+#                      other maps' parts over several areas follow it in Story
+#                      4.31. Where the place's positions are decides it,
 #                      as for Dust2's fast cat, which stayed off CTSpawn's
 #                      split (Story 4.26). It first bites on Ancient's long
 #                      toka kulma: 16 Alley (transit) and 3 BombsiteB
@@ -448,9 +464,11 @@
 #                      like an area takes that area's); then its second (a
 #                      part holding positions of its split areas takes
 #                      theirs, on each split), with its third for a part
-#                      holding none; and last the majority clause above, the
-#                      fallback when the second clause's areas disagree and
-#                      no earlier clause fixes the junction. The earlier
+#                      holding none; and last the majority clause above, a
+#                      placement rule for a place over several areas -- a
+#                      transit and a junction area, or two transit areas --
+#                      applied when no earlier clause fixes the junction. The
+#                      earlier
 #                      clauses already settle three parts that hold a transit
 #                      area's and a junction area's positions: ct cross (his
 #                      word), short a and alakerran sinkku (the first
@@ -2285,7 +2303,7 @@ regions = [
 junction = true
 junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
 confidence = "stated"
-source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Sitellä taas ruudussa K11a noin sen vasen alanurkka on default laatikko. Sen päälle voi hyppiä kahdella hypyllä tai sitten yhdellä hypyllä näet juuri laatikon yli balconylle ja juuri sisään apartmentsiin headshot kulmana'; the corner sized by the size rule he confirmed for edges and corners (callouts.toml header), where the guide draws the box. Its 2 live ticks are one level, so its two jump heights cannot be measured. It takes 2 BombsiteA positions. Junction basis: holds positions of BombsiteA"
+source = "vastaus-inferno-sitet-2026-10-02.md section 'Verbatim', his words: 'Sitellä taas ruudussa K11a noin sen vasen alanurkka on default laatikko. Sen päälle voi hyppiä kahdella hypyllä tai sitten yhdellä hypyllä näet juuri laatikon yli balconylle ja juuri sisään apartmentsiin headshot kulmana'; the corner sized by the size rule he confirmed for edges and corners (callouts.toml header), where the guide draws the box. Its 2 live ticks are one level, so its two jump heights cannot be measured. It takes 2 BombsiteA positions. AN EXTENT HE HEDGES WITH 'NOIN' (callouts.toml header, Story 4.30): a corner of 0.6 of the half-cell would hold 2 live ticks and one of 0.4 would hold 2, against this corner's 2, so it stays stated. Junction basis: holds positions of BombsiteA"
 
 [[de_inferno.Banana.split.parts]]
 callout = "moto"
@@ -3343,12 +3361,12 @@ by = 984.8477783203125
 [[de_anubis.BombsiteA.split.parts]]
 callout = "koroke"
 regions = [
-  { cell = "I4a", x = [0.5, 1.0], y = [0.0, 0.5], words = "Koroke on I4a ruudun oikeassa yläkulmassa" },
+  { cell = "I4a", x = [0.5, 1.0], y = [0.0, 0.5], words = "Koroke on I4a ruudun oikeassa yläkulmassa ja on noin neljännesruudun kokoinen" },
 ]
 junction = true
 junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
 confidence = "inferred"
-source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Site itsessään on hieman kahdella portaalla madallettu alue, jonka keskellä on pyöreä koroke. Korokkeelle pääsee hyppäämään heavenistä, mutta ei siteltä ilman boostia. Koroke on I4a ruudun oikeassa yläkulmassa ja on noin neljännesruudun kokoinen.' I4a's top-right corner, sized by the size rule he confirmed for edges and corners (callouts.toml header), where the guide draws the round disc (I4a x 0.62, y 0.15). AN EXTENT HE HEDGES WITH 'NOIN' (callouts.toml header): his 'noin neljännesruudun kokoinen' makes the extent ours, and a corner of 0.6 of the half-cell would hold 4 live ticks and one of 0.4 would hold 1, against this corner's 3, so it is inferred. Nobody stands on it in the archive: on its 3 live ticks it fails the band rule of the callouts.toml header (one level, z -192 to -180, the floor at its foot), a known limit (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #16). It takes 3 BombsiteA positions. Junction basis: holds positions of BombsiteA"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Site itsessään on hieman kahdella portaalla madallettu alue, jonka keskellä on pyöreä koroke. Korokkeelle pääsee hyppäämään heavenistä, mutta ei siteltä ilman boostia. Koroke on I4a ruudun oikeassa yläkulmassa ja on noin neljännesruudun kokoinen.' I4a's top-right corner, his own size, a quarter of the half-cell ('neljännesruudun kokoinen'), where the guide draws the round disc (I4a x 0.62, y 0.15). AN EXTENT HE HEDGES WITH 'NOIN' (callouts.toml header): his 'noin neljännesruudun kokoinen' makes the extent ours, and a corner of 0.6 of the half-cell would hold 4 live ticks and one of 0.4 would hold 1, against this corner's 3, so it is inferred. Nobody stands on it in the archive: on its 3 live ticks it fails the band rule of the callouts.toml header (one level, z -192 to -180, the floor at its foot), a known limit (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #16). It takes 3 BombsiteA positions. Junction basis: holds positions of BombsiteA"
 
 [[de_anubis.BombsiteA.split.parts]]
 callout = "pyrstö"

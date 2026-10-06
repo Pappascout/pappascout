@@ -1579,12 +1579,20 @@ def test_every_place_built_without_a_band_fails_the_band_rule(place: str) -> Non
     assert "fails the band rule" in part.source or "NOT BUILT" in part.source, place
 
 
-#: The form the majority clause's counts are written in (the header's ONE
-#: PLACE OVER A TRANSIT AREA ..., Story 4.30): "Its own spots hold <n>
-#: <Area> and <m> <Area> live ticks".
-_OWN_SPOTS = re.compile(
-    r"Its own spots hold (\d+ [A-Z]\w*(?:(?:, | and )\d+ [A-Z]\w*)*) live ticks"
-)
+def _own_spots() -> re.Pattern:
+    """The form the majority clause's counts are written in, read from the
+    header where the clause writes it ("Its own spots hold <n> <Area> and
+    <m> <Area> live ticks"), the counts and areas where it says <n> and
+    <Area>; and the header says the form is required from Story 4.30 on."""
+    form = _header_clause(
+        r"Its source writes the counts in one form, '([^'<]*)<n> <Area> and <m> "
+        r"<Area>([^'<]*)'.*?the form is required from Story 4\.30 on"
+    )
+    return re.compile(
+        re.escape(form[1])
+        + r"(\d+ [A-Z]\w*(?:(?:, | and )\d+ [A-Z]\w*)*)"
+        + re.escape(form[2])
+    )
 
 
 def _part_and_split(map_name: str, callout: str):
@@ -1713,7 +1721,7 @@ def test_every_stated_junction_basis_is_what_the_archive_shows(key: str) -> None
         # on, in the header's form -- the map's live ticks the part claims
         # first, by game area -- are the archive's, every area of them, and
         # the area holding most is the split's own.
-        own = _OWN_SPOTS.search(part.source)
+        own = _own_spots().search(part.source)
         if own:
             stated = {a: int(n) for n, a in re.findall(r"(\d+) (\w+)", own[1])}
             assert stated == lies.get(part.callout, {}), (part.callout, lies.get(part.callout))
@@ -1853,9 +1861,9 @@ def test_an_extent_he_hedges_with_noin_is_ours_where_another_corner_moves() -> N
     1): a corner he gives "noin" is the size rule's half by half, and the
     corners of 0.4 and 0.6 of the half-cell its source states are re-derived;
     the part is inferred exactly where one of them takes other live ticks
-    than the 0.5 corner. The parts that state the counts are a closed set."""
-    from test_cell_split import _HIS_WORDS
-
+    than the 0.5 corner. The parts that state the counts are exactly the
+    corners whose words he hedges with "noin" (Winston's review): read from
+    the table, not listed here."""
     _header_clause(
         r"AN EXTENT HE HEDGES WITH 'NOIN' .*? is inferred where a corner of 0\.4 "
         r"or of 0\.6 of the half-cell takes other positions than the 0\.5 one"
@@ -1872,11 +1880,7 @@ def test_an_extent_he_hedges_with_noin_is_ours_where_another_corner_moves() -> N
             if not stated:
                 continue
             (region,) = part.regions
-            # His hedge is in his quoted words (koroke's is beside the corner,
-            # "ja on noin neljännesruudun kokoinen").
-            assert any(
-                "noin" in q.lower() for q in _HIS_WORDS.findall(part.source)
-            ), part.callout
+            assert "noin" in region.words.lower(), part.callout
             assert {region.x, region.y} <= {(0.0, 0.5), (0.5, 1.0)}, part.callout
             ticks = _on_floor(_live_ticks(require_parsed(), _map_of(key)), split)
             counts = {}
@@ -1893,4 +1897,118 @@ def test_an_extent_he_hedges_with_noin_is_ours_where_another_corner_moves() -> N
             moves = counts[0.4] != counts[0.5] or counts[0.6] != counts[0.5]
             assert (part.confidence == "inferred") == moves, part.callout
             found.add((_map_of(key), part.callout))
-    assert found == {("de_anubis", "newbox"), ("de_anubis", "koroke")}
+    hedged = {
+        (_map_of(key), part.callout)
+        for key in _PART_SPLITS
+        for part in _table()[_map_of(key)][_PART_SPLITS[key][0]].split.parts
+        for region in part.regions
+        if region.cell is not None
+        and {region.x, region.y} <= {(0.0, 0.5), (0.5, 1.0)}
+        and "noin" in region.words.lower()
+    }
+    assert found == hedged, found ^ hedged
+    assert ("de_inferno", "default laatikko") in found  # the stated case
+
+
+def _risteys_words() -> dict[str, str]:
+    """A RISTEYS OF TWO's three readings, read from the header (Winston's
+    review of Story 4.30): the quarter-deep edge (the lead's), the edge with
+    the side or corner his words add (the size rule's), and the half-cells
+    whole with his height words (Dust2's window) -- each with the confidence
+    the header gives it."""
+    return {
+        "edge": _header_clause(
+            r"A RISTEYS OF TWO .*? so such a part is (\w+) where it moves positions "
+            r"-- where the edge's quarters take live ticks of the split's areas"
+        )[1],
+        "corner": _header_clause(
+            r"A RISTEYS OF TWO .*? those words are his, the size rule above -- his "
+            r"since 2026-09-28 -- reads them, and the part is (\w+) \(Story 4\.30: "
+            r"Anubis's dark tolppa; Inferno's coffin\)"
+        )[1],
+        "whole": _header_clause(
+            r"A RISTEYS OF TWO .*? no edge is read, and the part is (\w+) by his "
+            r"height words: Dust2's window"
+        )[1],
+    }
+
+
+def test_a_risteys_of_two_carries_the_confidence_the_header_gives_its_reading() -> None:
+    """Every part whose region his "risteys" of two half-cells sharing an
+    edge is read from carries the header's confidence for that reading:
+    whole half-cells (the window), corners by his side words (dark tolppa;
+    coffin, whose regions are his corners), or the lead's quarter-deep edge
+    (hiekkasäkit)."""
+    words = _risteys_words()
+    found = {}
+    for map_name, table in _table().items():
+        for entry in table.values():
+            for part in entry.split.parts if entry.split else []:
+                for region in part.regions:
+                    if region.crossing is not None or not re.search(
+                        "risteys|risteyks", region.words
+                    ):
+                        continue
+                    if (region.x, region.y) == ((0.0, 1.0), (0.0, 1.0)):
+                        reading = "whole"
+                    elif {region.x, region.y} <= {(0.0, 0.5), (0.5, 1.0)}:
+                        reading = "corner"
+                    else:
+                        reading = "edge"
+                    found.setdefault((map_name, part.callout), set()).add(reading)
+                    assert part.confidence == words[reading], (part.callout, reading)
+    coffin = next(
+        p for p in _table()["de_inferno"]["Banana"].split.parts if p.callout == "coffin"
+    )
+    assert "A RISTEYS OF TWO" in coffin.source
+    assert coffin.confidence == words["corner"]
+    assert found == {
+        ("de_dust2", "hiekkasäkit"): {"edge"},
+        ("de_dust2", "window"): {"whole"},
+        ("de_anubis", "dark tolppa"): {"corner"},
+    }
+
+
+@pytest.mark.archive
+def test_a_risteys_edge_moves_positions_where_it_is_inferred() -> None:
+    """The baseline the header names: an edge reading moves positions where
+    its quarters take live ticks of the split's area, which the part would
+    not hold without them -- so the inferred edge parts do."""
+    for key in sorted(_PART_SPLITS):
+        split = _table()[_map_of(key)][_PART_SPLITS[key][0]].split
+        for part in split.parts:
+            edges = [
+                r for r in part.regions
+                if r.crossing is None and re.search("risteys|risteyks", r.words)
+                and (r.x, r.y) != ((0.0, 1.0), (0.0, 1.0))
+                and not {r.x, r.y} <= {(0.0, 0.5), (0.5, 1.0)}
+            ]
+            if not edges:
+                continue
+            ticks = _on_floor(_live_ticks(require_parsed(), _map_of(key)), split)
+            own = ticks.filter(pl.col("area").is_in(list(_PART_SPLITS[key])))
+            held = _in_rects(own, split, [split._region_rect(part, r) for r in edges])
+            assert held.height > 0, part.callout
+            assert part.confidence == _risteys_words()["edge"], part.callout
+
+
+def test_his_cells_by_the_positions_keep_the_confidence_the_header_gives() -> None:
+    """HIS CELLS BY THE POSITIONS (the header, Story 4.30 decision 2), read
+    where it is written: a part whose source rests on it holds his cells, the
+    guide's cell is recorded among them, and the part has the header's
+    confidence. The parts are a closed set."""
+    word = _header_clause(
+        r"HIS CELLS BY THE POSITIONS .*? his cells by the positions win, the guide's "
+        r"cell is recorded in the source, and the part stays (\w+)"
+    )[1]
+    found = set()
+    for map_name, table in _table().items():
+        for entry in table.values():
+            for part in entry.split.parts if entry.split else []:
+                if "HIS CELLS BY THE POSITIONS" not in part.source:
+                    continue
+                guide = re.search(r"over the guide's ([A-P][0-9]+[a-d])", part.source)
+                assert guide and guide[1] in part.cells, part.callout
+                assert part.confidence == word, part.callout
+                found.add((map_name, part.callout))
+    assert found == {("de_anubis", "pizza")}
