@@ -351,7 +351,10 @@
 #                      twice on the sites' splits: ruins, the game's Ruins
 #                      (transit), holds 7 BombsiteB ticks in G3d, and pit,
 #                      the game's Pit (transit), holds 1 BombsiteA tick in
-#                      K12b -- 8 site positions made transit.
+#                      K12b -- 8 site positions made transit. On Anubis
+#                      (Story 4.30) it bites once: backsite, the game's
+#                      BackofB (transit), holds 5 BombsiteB ticks in D6d and
+#                      D7b on BombsiteB's split.
 #                      HIS WORD FIRST (Story 4.26, the lead's decision on
 #                      his ct cross answer): where his own words name a
 #                      part a choice point, the part is a junction on every
@@ -379,7 +382,13 @@
 #                      as for Dust2's fast cat, which stayed off CTSpawn's
 #                      split (Story 4.26). It first bites on Ancient's long
 #                      toka kulma: 16 Alley (transit) and 3 BombsiteB
-#                      positions, built on Alley's split.
+#                      positions, built on Alley's split. On Anubis (Story
+#                      4.30) it builds dark, dark tolppa, ct and kamera on
+#                      one split each. Where another place of his
+#                      holds the other positions on their own split, they
+#                      take that place and not the area's callout: dark's 2
+#                      BombsiteB ticks in D7b are backsite's, his broader
+#                      place there ('Backsite kuitenkin kattaa koko D7b').
 #                      A PASSAGE (Story 4.18, the spec 4.18 review; written
 #                      here in Story 4.27): a part that is a way to
 #                      somewhere, not a place, is transit although its split
@@ -408,7 +417,8 @@
 #                      clause). The first clause also settles, over "a split
 #                      never removes its area's junction", Inferno's ruins
 #                      and pit (Story 4.28): 7 BombsiteB and 1 BombsiteA
-#                      positions made transit.
+#                      positions made transit; and Anubis's backsite (Story
+#                      4.30): 5 BombsiteB positions.
 #   junction        -- see the rule above. A transit place drops out of the
 #                      middle of a route; a place with no callout is always
 #                      kept, so the flag stays visible.
@@ -3230,6 +3240,42 @@ junction = false
 neighbours = 4
 confidence = "measured"
 source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/anubis-epavarmat.png: the ticks lie on the guide label -- on BACKSITE. Before the measurement: calloutit.md guide: BACKSITE -- a match of the place only"
+note = "Since Story 4.30 the split below names his finer places inside it; every other position, and every rule row, stays backsite."
+
+[de_anubis.BackofB.split]
+image = "kartta15_sivu20_1480x1546.png"
+origin = [0.0, 0.0]
+cell = [127.30978727340698, 129.44617196917534]
+columns = "ABCDEFGHIJKL"
+rows = 12
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_anubis-BombsiteA.png and de_anubis-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_anubis.Canal.split], checked float-equal (anubis-taulukot-2026-10-06.md section 2.1), so every split of de_anubis is on one grid. His remark that the guide and the positions disagree at B main's entry and at pizza is the guide drawing's, not the fit's (anubis-taulukot-2026-10-06.md section 2.2: the whole map's best shift onto the drawn floor is 0 and 2 pixels, every window away from B main is within 6, and no one shift puts B main's ticks on the drawing), so the grid stays (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)')). No floor cut (anubis-taulukot-2026-10-06.md section 2.3): the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-06 is vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', read as tables in anubis-taulukot-2026-10-06.md and built by the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. A table of its own: no place of his holds positions of two junction areas, so no split borrows (anubis-taulukot-2026-10-06.md section 5.0). Its parts are transit, as BackofB: they hold its positions (the second clause of A PART'S JUNCTION; the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #10). His places on this split, from his quoted words: backsite, dark."
+
+[de_anubis.BackofB.split.fit]
+sx = 0.29955244064331055
+sy = 0.3045792281627655
+bx = 698.9820556640625
+by = 984.8477783203125
+
+[[de_anubis.BackofB.split.parts]]
+callout = "dark tolppa"
+regions = [
+  { cell = "D7b", x = [0.0, 0.5], y = [0.0, 0.5], words = "D7b ja D6d risteyksessä niiden vasemmassa ala ja yläreunassa" },
+  { cell = "D6d", x = [0.0, 0.5], y = [0.5, 1.0], words = "D6d risteyksessä niiden vasemmassa ala" },
+]
+junction = false
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Backsitellä ruutujen D7b ja D6d risteyksessä niiden vasemmassa ala ja yläreunassa on myös tolppa, jota voi kutsua dark tolpaksi.' Named 'dark tolppa' by the lead: his 'dark tolpaksi' in its basic form, his own name. D7b and D6d share an edge, and his 'vasemmassa ala ja yläreunassa' names a side of it, so each is that corner, sized by the size rule he confirmed for edges and corners (callouts.toml header): D6d's bottom-left and D7b's top-left, where the guide draws the post (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #11). The post is solid. The corners hold 14 BackofB live ticks and 2 of BombsiteB's, built here only (the header's ONE PLACE OVER A TRANSIT AREA AND A JUNCTION AREA; #10); the 2 take backsite on BombsiteB's split. It takes 14 BackofB positions (D6d 8, D7b 6). Junction basis: holds positions of BackofB"
+
+[[de_anubis.BackofB.split.parts]]
+callout = "dark"
+cells = ["D7b"]
+regions = [
+  { cell = "E7a", x = [0.0, 0.25], words = "E7a vasen reuna" },
+]
+broad = true
+junction = false
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'D7b,E7a vasen reuna ovat dark B sitellä.' Dark lies inside his backsite ('Backsite kuitenkin kattaa koko D7b'). D7b whole and E7a's left edge, sized by the size rule he confirmed for edges and corners (callouts.toml header). Broad: it yields to every earlier part it overlaps, so D7b's top-left corner is dark tolppa's. His earlier 'B:llä konnu ja dark' (mittatikku-rcave-veterans.md, Anubis, read there as the whole BackofB) is narrowed to these cells. Its half-cell and region hold 93 BackofB live ticks and 2 of BombsiteB's, and one callout has one junction, so it is built here only (the header's ONE PLACE OVER A TRANSIT AREA AND A JUNCTION AREA; the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #10): transit, as BackofB. On its claim the band rule of the callouts.toml header passes (85 ticks at z 35..40, 10 at 92..94, the largest gap 51.88 from 40.19 to 92.06), edge 66.12, on a level above the backsite floor that he does not name, so no band is built (#12). It takes 87 BackofB positions (D7b 53, E7a 34). Junction basis: holds positions of BackofB"
 
 [de_anubis.BombsiteA]
 callout = "a site"
@@ -3238,6 +3284,47 @@ junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bo
 neighbours = 5
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_anubis table: BombsiteA = A site"
+note = "Since Story 4.30 the split below names his finer places inside it; every other position, and every rule row, stays a site."
+
+[de_anubis.BombsiteA.split]
+image = "kartta15_sivu20_1480x1546.png"
+origin = [0.0, 0.0]
+cell = [127.30978727340698, 129.44617196917534]
+columns = "ABCDEFGHIJKL"
+rows = 12
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_anubis-BombsiteA.png and de_anubis-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_anubis.Canal.split], checked float-equal (anubis-taulukot-2026-10-06.md section 2.1), so every split of de_anubis is on one grid. His remark that the guide and the positions disagree at B main's entry and at pizza is the guide drawing's, not the fit's (anubis-taulukot-2026-10-06.md section 2.2: the whole map's best shift onto the drawn floor is 0 and 2 pixels, every window away from B main is within 6, and no one shift puts B main's ticks on the drawing), so the grid stays (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)')). No floor cut (anubis-taulukot-2026-10-06.md section 2.3): the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-06 is vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', read as tables in anubis-taulukot-2026-10-06.md and built by the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. A table of its own: no place of his holds positions of two junction areas, so no split borrows (anubis-taulukot-2026-10-06.md section 5.0). NOT BUILT: heaven. In his words: 'Heaven on H4a oikea puolisko, H3c oikea puolisko, H3d ylemmät z arvot koska osa siitä on alempana sitellä, ja H3b, sekä pieni kaistale ehkä I3a ruudun vasenta reunaa.' -- the game's Heaven is his heaven: 66 of its 70 live ticks lie in his fractions, which hold no BombsiteA tick but in H3d, where the band rule of the callouts.toml header fails (anubis-taulukot-2026-10-06.md section 3: 33 live ticks, 2 at z -192 below a gap of 76.00), so H3d's 2 BombsiteA positions at heaven's height (z -38) stay a site, a known limit (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #22). No part of this split: his tolppa and his heaven luola are game areas' own callouts, the game's Fountain and TunnelStairs (vastaus-anubis-sitet-2026-10-06.md section 'His answers to the lead's four questions (2026-10-06)', answers 2 and 3); the J4a/J4c edge he puts the post on holds no place of its own. His places on this split, from his quoted words: koroke, pyrstö, lähivasen, heaven."
+
+[de_anubis.BombsiteA.split.fit]
+sx = 0.29955244064331055
+sy = 0.3045792281627655
+bx = 698.9820556640625
+by = 984.8477783203125
+
+[[de_anubis.BombsiteA.split.parts]]
+callout = "koroke"
+regions = [
+  { cell = "I4a", x = [0.5, 1.0], y = [0.0, 0.5], words = "Koroke on I4a ruudun oikeassa yläkulmassa" },
+]
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Site itsessään on hieman kahdella portaalla madallettu alue, jonka keskellä on pyöreä koroke. Korokkeelle pääsee hyppäämään heavenistä, mutta ei siteltä ilman boostia. Koroke on I4a ruudun oikeassa yläkulmassa ja on noin neljännesruudun kokoinen.' I4a's top-right corner, sized by the size rule he confirmed for edges and corners (callouts.toml header); his 'noin neljännesruudun kokoinen' is the same size, and the guide draws the round disc there (I4a x 0.62, y 0.15). Nobody stands on it in the archive: on its 3 live ticks it fails the band rule of the callouts.toml header (one level, z -192 to -180, the floor at its foot), a known limit (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #16). It takes 3 BombsiteA positions. Junction basis: holds positions of BombsiteA"
+
+[[de_anubis.BombsiteA.split.parts]]
+callout = "pyrstö"
+cells = ["I3b"]
+junction = true
+junction_source = "holds none of its split areas' live ticks and no live tick of the map lies in it; it lies in the game's BombsiteA on the guide picture, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'I3b on pyrstö callout.' I3b holds no live tick of the map (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #17). Junction basis: holds none of its split areas' live ticks and no live tick of the map lies in it; it lies in the game's BombsiteA on the guide picture"
+
+[[de_anubis.BombsiteA.split.parts]]
+callout = "lähivasen"
+cells = ["I5b", "I4d", "I4c"]
+junction = true
+junction_source = "holds positions of BombsiteA, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'I5b,I4d,I4c on mainista tullessa kutsutaan usein lähivasen.' I5b holds no live tick of the map. It takes 69 BombsiteA positions (I4d 36, I4c 33). Junction basis: holds positions of BombsiteA"
 
 [de_anubis.BombsiteB]
 callout = "b site"
@@ -3246,6 +3333,70 @@ junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bo
 neighbours = 8
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_anubis table: BombsiteB = B site"
+note = "Since Story 4.30 the split below names his finer places inside it; every other position, and every rule row, stays b site."
+
+[de_anubis.BombsiteB.split]
+image = "kartta15_sivu20_1480x1546.png"
+origin = [0.0, 0.0]
+cell = [127.30978727340698, 129.44617196917534]
+columns = "ABCDEFGHIJKL"
+rows = 12
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_anubis-BombsiteA.png and de_anubis-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_anubis.Canal.split], checked float-equal (anubis-taulukot-2026-10-06.md section 2.1), so every split of de_anubis is on one grid. His remark that the guide and the positions disagree at B main's entry and at pizza is the guide drawing's, not the fit's (anubis-taulukot-2026-10-06.md section 2.2: the whole map's best shift onto the drawn floor is 0 and 2 pixels, every window away from B main is within 6, and no one shift puts B main's ticks on the drawing), so the grid stays (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)')). No floor cut (anubis-taulukot-2026-10-06.md section 2.3): the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-06 is vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', read as tables in anubis-taulukot-2026-10-06.md and built by the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. A table of its own: no place of his holds positions of two junction areas, so no split borrows (anubis-taulukot-2026-10-06.md section 5.0). NOT BUILT: dark. In his words: 'D7b,E7a vasen reuna ovat dark B sitellä.' -- dark holds 93 BackofB live ticks and 2 of BombsiteB's, and one callout has one junction, so it is built on BackofB's split only (the header's ONE PLACE OVER A TRANSIT AREA AND A JUNCTION AREA; the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #10); its 2 BombsiteB positions in D7b take backsite, his broader place there. NOT BUILT: tolppa. In his words: 'Mainista sitelle tullessa oikealla on taas tolppa, jonka takana ct voi pelata ruudussa C7d' -- a post, not a callout here: his tolppa is the game's Fountain platform on the A side (vastaus-anubis-sitet-2026-10-06.md section 'His answers to the lead's four questions (2026-10-06)', answer 2) (#6). NOT BUILT: pilari. In his words: 'B site on pilari siten keskellä ruutujen C6d,D6c,C7b ja D7a ruutujen risteyksessä' -- the site pillar is solid: a box of half a half-cell on its crossing holds no live tick (#8). NOT BUILT: default plant. In his words: 'mikä on usein default plant paikka' -- how the pillar's notch is used, not a callout (#8). NOT BUILT: tiiliskivi. In his words: 'Bsitellä on myös D7a ja D6c risteyksessä kiinni site pilarissa yksi tiiliskivi' -- an object, not a callout; on the D6c/D7a edge its boost fails the band rule of the callouts.toml header (anubis-taulukot-2026-10-06.md section 3: 19 live ticks, z -4 to 56, the largest gap 22.52) (#7). NOT BUILT: bricks. In his words: 'bricks calloutin samalle korkeudelle kuin backsiten ruudussa D6a yläreuna ja D5c alareuna' -- the game's Bricks is his bricks, and his edge holds only Bricks live ticks (25), so the area prints it (#13). His places on this split, from his quoted words: b site, pizza, ct, connector, backsite, siten takana, dark, tolppa, pilari, default plant, tiiliskivi, bricks."
+
+[de_anubis.BombsiteB.split.fit]
+sx = 0.29955244064331055
+sy = 0.3045792281627655
+bx = 698.9820556640625
+by = 984.8477783203125
+
+[[de_anubis.BombsiteB.split.parts]]
+callout = "pizza"
+cells = ["B7b", "B6d", "C6c"]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Kuitenkin jos tullaan B mainista B siten puolelle niin vasemmalla heti on meidän callout pizza, eli pienet portaat ja kolmion muotoinen alue. Portaat ovat ehkä kolme pientä porrasta, kuvassa se on C6c ruutu, mutta pistepilven havainnot vaikuttaisi että se on ehkä enemmän B7b, B6d ja C6c ruuduissa.'. His cells by the positions, B7b, B6d and C6c, win over the guide's C6c (spec-4-30-anubis-sites.md decision 2; the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)')): the guide drawing differs from the positions there (anubis-taulukot-2026-10-06.md section 2.2), and the positions put the raised triangle in his three half-cells, 56 of its 65 live ticks at z 35 to 38 over a site floor at 0. His 'ehkä' is recorded. The three small stairs are no place of their own and get no band. It takes 65 BombsiteB positions (B7b 29, B6d 24, C6c 12). Junction basis: holds positions of BombsiteB"
+
+[[de_anubis.BombsiteB.split.parts]]
+callout = "ct"
+cells = ["C6a", "C6b"]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Ruutu C6a ja C6b ja tästä ylöspäin ruutujen C5c ja C5d suuntaan ovat CT:tä (samalla tavoin kuin infernossa CT B.llä).' and his words: 'mutta C6a ja C6b ovat vielä CT lähellä tai vain CT.' His ct of the B side, as on Inferno's B site (that ct is another map's); not ct spawn or ct side upper. NOT HIS, C5c: 'ylöspäin ... suuntaan' is a direction, and his next words give that stretch to the tunnel and the alley, his words: 'Siellä on myös tuo tunnel ja alley, jota voi käyttää kun ollaan lähempänä CT spawnia' (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #3). NOT HIS, C5d: the same. C6a and C6b hold 79 BombsiteB and 55 Alley live ticks, and one callout has one junction, so it is built here only (the header's ONE PLACE OVER A TRANSIT AREA AND A JUNCTION AREA; #4): the 55 stay alley, a known limit. It takes 79 BombsiteB positions (C6b 62, C6a 17). Junction basis: holds positions of BombsiteB"
+
+[[de_anubis.BombsiteB.split.parts]]
+callout = "connector"
+cells = ["D7d", "D8b"]
+regions = [
+  { cell = "E7c", x = [0.0, 0.16666666666666666], words = "E7c vasemman reunan kuudennes" },
+  { cell = "E8a", x = [0.0, 0.5], words = "E8a vasen puolisko" },
+]
+junction = true
+junction_source = "the same place as the game's Connector (callout 'connector'), whose junction it must share: alueomistus-pohja-2026-09-26.md de_anubis: 'Boat, canal, connector ... on kuitenkin välillä kontaktialuetta'"
+confidence = "stated"
+source = "puoliruudut-vastaus-2-2026-09-28.md section 'Verbatim', answer 8, his words: 'Connector osuu ruutuihin D7d,E7c vasemman reunan kuudennes,D8b ja E8a vasen puolisko', confirmed by his answer to the review tie, puoliruudut-vastaus-2-2026-09-28.md section 'His answers to the two review ties, afternoon 2026-09-28', answer 1, his words: 'E8a:n oikea reuna on canalia ja vasen connectoria'; the game's Connector is connector, so the counts merge. On BombsiteB's split, vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'D7c johtaa connectoriin, ja D7d on jo connectorin sisällä.' -- today's words agree on D7d. NOT HIS, D7c: the way to connector, not in it ('johtaa connectoriin'; the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #15). The same place as the part of Canal's split (anubis-taulukot-2026-10-06.md section 4; one place on one floor is one region). It takes 9 BombsiteB positions (D7d, z -56, the connector floor). Junction basis: the same place as the game's Connector"
+
+[[de_anubis.BombsiteB.split.parts]]
+callout = "backsite"
+cells = ["D7b", "D6d"]
+regions = [
+  { cell = "E7a", x = [0.0, 0.25], words = "E7a ja E6c ruutujen vasemman neljänneksen" },
+  { cell = "E6c", x = [0.0, 0.25], words = "E6c ruutujen vasemman neljänneksen" },
+  { cell = "D6b", y = [0.75, 1.0], words = "hieman D6b ruudun alareunaa" },
+  { cell = "E6a", x = [0.0, 0.5], y = [0.5, 1.0], words = "E6a vasenta alakulmaa" },
+]
+junction = false
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Backsite kuitenkin kattaa koko D7b,D6d, sekä E7a ja E6c ruutujen vasemman neljänneksen ja hieman D6b ruudun alareunaa ja E6a vasenta alakulmaa.' and his words: 'Backsite on myös hieman korkeammalla kuin B site itse, erotat tämän z arvosta.' The game's BackofB is backsite (koordinaatit-mitattu-2026-09-27.md section 2: its ticks lie on the guide's BACKSITE), so the counts merge, and it is transit. D7b and D6d whole; E7a's and E6c's left quarters, his own; D6b's bottom edge and E6a's bottom-left corner, sized by the size rule he confirmed for edges and corners (callouts.toml header), his 'hieman' read plain. It takes 5 BombsiteB positions (D6d 3, D7b 2; z 35 to 40), on the raised floor's left edge, made transit by the first clause of A PART'S JUNCTION, as Inferno's ruins and pit (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #9). D7b's 2 are his dark too, which is built on BackofB's split only, so here his broader backsite takes them ('Backsite kuitenkin kattaa koko D7b'). His height words need no band: the site floor is not in these regions, and on them the band rule of the callouts.toml header passes only on a level above the backsite floor that he does not name (anubis-taulukot-2026-10-06.md section 3: edge 60.07, BackofB 11 at z 80 to 94), so no band is built (#12). Junction basis: the same place as the game's BackofB"
+
+[[de_anubis.BombsiteB.split.parts]]
+callout = "siten takana"
+cells = ["D6c", "C6d"]
+junction = true
+junction_source = "holds positions of BombsiteB, whose entry is a junction: a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Ruutu D6c ja C7d (ei pizza alue) ovat siten takana callout.' Asked whether he means C7d or C6d (anubis-taulukot-2026-10-06.md ambiguity 5), he answered (vastaus-anubis-sitet-2026-10-06.md section 'His answers to the lead's four questions (2026-10-06)', answer 1), his words: 'C6d kyllä' -- so his '(ei pizza alue)' says C6d, beside pizza's C6c, is not pizza. NOT HIS, C7d: his answer puts C6d in its place. D6c's top-right holds the small stairs up to bricks (z 30 to 53). It takes 122 BombsiteB positions (D6c 89, C6d 33; z -4 to 54). Junction basis: holds positions of BombsiteB"
 
 [de_anubis.Bricks]
 callout = "bricks"
@@ -3253,7 +3404,7 @@ junction = false
 neighbours = 3
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'Anubis bricks meni oikein. Bricks on ok.'"
-note = "His description: between the museum (palace) and B site, just out of the museum, not yet on B site or back site. The dense moves agree: Bricks <- BombsiteB 10, PalaceInterior 6, BackofB 6; -> PalaceInterior 15, BombsiteB 5."
+note = "His description: between the museum (palace) and B site, just out of the museum, not yet on B site or back site. The dense moves agree: Bricks <- BombsiteB 10, PalaceInterior 6, BackofB 6; -> PalaceInterior 15, BombsiteB 5. Story 4.30: vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Siitä on pienet portaat, jotka nostaa muistaakseni bricks calloutin samalle korkeudelle kuin backsiten ruudussa D6a yläreuna ja D5c alareuna juuri palatsin/museon sisäänkäynnillä.' -- his bricks edge holds only the game's Bricks ticks; the area reaches D6a's y 0.54, past his top edge (9 ticks), and stays bricks there (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #13)."
 
 [de_anubis.Bridge]
 callout = "bridge"
@@ -3398,11 +3549,12 @@ confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_anubis table: Connector = connector (konnu); calloutit.md: konnu = CONNECTOR"
 
 [de_anubis.Fountain]
-callout = "fountain"
+callout = "tolppa"
 junction = false
 neighbours = 2
-confidence = "guide"
-source = "calloutit.md guide: FOUNTAIN -- the game area's own name is a guide callout"
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'His answers to the lead's four questions (2026-10-06)', answer 2, his words: 'Kyllä vountain tasanne on tolppani. Ja tolppa on oikea tolppa fountain alueella.' -- 'vountain' read as fountain: the game's Fountain, the raised platform (z -103 to -42 over the A site's -152) his stairs in J4d lead up to (vastaus-anubis-sitet-2026-10-06.md section 'Verbatim': 'portaat tolpalle'), is his tolppa, and the post stands on it (anubis-taulukot-2026-10-06.md ambiguity 18). calloutit.md: tolppa is his Anubis word, not in the guide; the guide's FOUNTAIN is the same place"
+note = "Story 4.30: the post itself, in vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Itse tolppa on J4a ja J4c ruutujen risteyksessä'. The platform is the place; the J4a/J4c edge is no part of its own (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)')). Transit by the area rule: his words name no choice point there."
 
 [de_anubis.Heaven]
 callout = "heaven"
@@ -3410,6 +3562,7 @@ junction = false
 neighbours = 4
 confidence = "guide"
 source = "calloutit.md guide: HEAVEN -- the game area's own name is a guide callout"
+note = "Story 4.30: vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Heaven on H4a oikea puolisko, H3c oikea puolisko, H3d ylemmät z arvot koska osa siitä on alempana sitellä, ja H3b, sekä pieni kaistale ehkä I3a ruudun vasenta reunaa.' -- the game's Heaven is his heaven (66 of its 70 live ticks lie in his fractions), so no part repeats it; the confidence stays guide, as Inferno's Graveyard (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #22)."
 
 [de_anubis.LowerTunnel]
 callout = "lower tunnel"
@@ -3425,7 +3578,33 @@ junction_source = "alueomistus-pohja-2026-09-26.md de_anubis: 'kontakti tulee A 
 neighbours = 5
 confidence = "guide"
 source = "calloutit.md guide: MAIN -- the game area's own name is a guide callout"
-note = "That this main is his A main is inferred: he calls ruins / outside long B main."
+note = "That this main is his A main is inferred: he calls ruins / outside long B main. Since Story 4.30 the split below names his finer places inside it; every other position, and every rule row, stays main."
+
+[de_anubis.Main.split]
+image = "kartta15_sivu20_1480x1546.png"
+origin = [0.0, 0.0]
+cell = [127.30978727340698, 129.44617196917534]
+columns = "ABCDEFGHIJKL"
+rows = 12
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_anubis-BombsiteA.png and de_anubis-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_anubis.Canal.split], checked float-equal (anubis-taulukot-2026-10-06.md section 2.1), so every split of de_anubis is on one grid. His remark that the guide and the positions disagree at B main's entry and at pizza is the guide drawing's, not the fit's (anubis-taulukot-2026-10-06.md section 2.2: the whole map's best shift onto the drawn floor is 0 and 2 pixels, every window away from B main is within 6, and no one shift puts B main's ticks on the drawing), so the grid stays (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)')). No floor cut (anubis-taulukot-2026-10-06.md section 2.3): the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-06 is vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', read as tables in anubis-taulukot-2026-10-06.md and built by the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. A table of its own: no place of his holds positions of two junction areas, so no split borrows (anubis-taulukot-2026-10-06.md section 5.0). NOT BUILT: pöytä. In his words: 'Ruudussa J5d on pöytä jonka päälle pääsee ja tällöin voi olla hieman eri z arvo.' -- an object, not a callout (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #21); its top fails the band rule of the callouts.toml header (anubis-taulukot-2026-10-06.md section 3: 21 live ticks in J5d, 3 above a gap of 39.00, at z -107 to -91), so it stays main. His places on this split, from his quoted words: main, lähikulma, pöytä."
+
+[de_anubis.Main.split.fit]
+sx = 0.29955244064331055
+sy = 0.3045792281627655
+bx = 698.9820556640625
+by = 984.8477783203125
+
+[[de_anubis.Main.split.parts]]
+callout = "lähikulma"
+regions = [
+  { cell = "I5d", x = [0.5, 1.0], y = [0.5, 1.0], words = "I5d oikea alanurkka" },
+  { cell = "J5c", x = [0.0, 0.5], y = [0.5, 1.0], words = "J5c vasen alanurkka" },
+  { cell = "I6b", x = [0.5, 1.0], y = [0.0, 0.5], words = "I6b oikea ylänurkka" },
+]
+junction = true
+junction_source = "holds positions of Main, whose entry is a junction: alueomistus-pohja-2026-09-26.md de_anubis: 'kontakti tulee A mainiin jos ct ja t puolen pelaajat molemmat haluavat duelata'"
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'A main on aika samaa korkeutta. Ruutu I5d oikea alanurkka, J5c vasen alanurkka ja ehkä juuri I6b oikea ylänurkka on lähikulma.' The inner corner of A main, where I5d, J5c and I6b meet: three corners, sized by the size rule he confirmed for edges and corners (callouts.toml header). His 'ehkä juuri' on I6b is recorded; I6b's corner takes 4 of its positions (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #20). It takes 16 Main positions (I5d 9, I6b 4, J5c 3; z -146 to -142). Junction basis: holds positions of Main"
 
 [de_anubis.MidDoors]
 callout = "middle doors"
@@ -3442,6 +3621,32 @@ junction_source = "the first route model (reittimalli-<owner>.md) Anubis T side,
 neighbours = 5
 confidence = "guide"
 source = "calloutit.md guide: MIDDLE -- the game area's own name is a guide callout"
+note = "Since Story 4.30 the split below names his finer places inside it; every other position, and every rule row, stays middle."
+
+[de_anubis.Middle.split]
+image = "kartta15_sivu20_1480x1546.png"
+origin = [0.0, 0.0]
+cell = [127.30978727340698, 129.44617196917534]
+columns = "ABCDEFGHIJKL"
+rows = 12
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_anubis-BombsiteA.png and de_anubis-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_anubis.Canal.split], checked float-equal (anubis-taulukot-2026-10-06.md section 2.1), so every split of de_anubis is on one grid. His remark that the guide and the positions disagree at B main's entry and at pizza is the guide drawing's, not the fit's (anubis-taulukot-2026-10-06.md section 2.2: the whole map's best shift onto the drawn floor is 0 and 2 pixels, every window away from B main is within 6, and no one shift puts B main's ticks on the drawing), so the grid stays (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)')). No floor cut (anubis-taulukot-2026-10-06.md section 2.3): the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-06 is vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', read as tables in anubis-taulukot-2026-10-06.md and built by the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. A table of its own: no place of his holds positions of two junction areas, so no split borrows (anubis-taulukot-2026-10-06.md section 5.0). His places on this split, from his quoted words: kamera."
+
+[de_anubis.Middle.split.fit]
+sx = 0.29955244064331055
+sy = 0.3045792281627655
+bx = 698.9820556640625
+by = 984.8477783203125
+
+[[de_anubis.Middle.split.parts]]
+callout = "kamera"
+cells = ["G5d", "G5b", "H5c"]
+regions = [
+  { cell = "H5a", y = [0.75, 1.0], words = "H5a ruudun alareuna" },
+]
+junction = true
+junction_source = "holds positions of Middle, whose entry is a junction: the first route model (reittimalli-<owner>.md) Anubis T side, his words: 'Midistä pääsee taas walkwayltä A:lle tai palacen eli museon kautta B:lle tai voi pudottautua myös ikkunasta alas canaaliin'"
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Kamera on yhdyskäytävä midistä G5d,G5b,H5c ja H5a ruudun alareuna.' H5a's bottom edge sized by the size rule he confirmed for edges and corners (callouts.toml header). A place a player holds from and not only a way through (mittatikku-rcave-veterans.md, Anubis: '1 kamerassa holdaa mid'), so not A PASSAGE (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #27). The guide's WALKWAY label lies along these cells; the game's Walkway keeps walkway, his own word in the first route model. Its half-cells and region hold 88 Middle and 57 Walkway live ticks, and one callout has one junction, so it is built here only (the header's ONE PLACE OVER A TRANSIT AREA AND A JUNCTION AREA): the 57 stay walkway, a known limit. It takes 88 Middle positions (G5d 51, G5b 29, H5a 6, H5c 2; z -88 to -30, the slope from mid down to walkway). Junction basis: holds positions of Middle"
 
 [de_anubis.OutsideLong]
 callout = "outside long"
@@ -3513,10 +3718,12 @@ confidence = "guide"
 source = "calloutit.md guide: TUNNEL -- the game area's own name is a guide callout"
 
 [de_anubis.TunnelStairs]
+callout = "heaven luola"
 junction = false
 neighbours = 2
-confidence = "unnamed"
-source = "alueomistus-pohja-2026-09-26.md de_anubis: thin and not named; no guide callout in calloutit.md"
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'His answers to the lead's four questions (2026-10-06)', answer 3, his words: 'On oma callout.' -- of vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'H3c vasen alareuna ja H4a vasen reuna on missä on sisäänkäynti Heaven luolaan ja portaille. Siellä on isot portaat alaspäin kohti G2c ruutua josta pääsee rannalle ja CT spawniin. siellä on vaihtelevia z arvoja.' The game's TunnelStairs is that cave and its stairs: its 12 live ticks lie on them (G4b 6, G3d 5, and 1 at H3c's bottom-left, his entrance), between the guide's TUNNEL and HEAVEN (koordinaatit-mitattu-2026-09-27.md section 4). The stairs are the area itself and need no region; the game's Tunnel beyond them, toward G2c, stays tunnel"
+note = "Story 4.30: his varying heights ('vaihtelevia z arvoja') are the stairs, and a stair gets no band. Transit by the area rule: his words name no choice point there."
 
 [de_anubis.Walkway]
 callout = "walkway"
@@ -3524,6 +3731,37 @@ junction = false
 neighbours = 4
 confidence = "guide"
 source = "calloutit.md guide: WALKWAY -- the game area's own name is a guide callout"
+note = "Since Story 4.30 the split below names his finer places inside it; every other position, and every rule row, stays walkway."
+
+[de_anubis.Walkway.split]
+image = "kartta15_sivu20_1480x1546.png"
+origin = [0.0, 0.0]
+cell = [127.30978727340698, 129.44617196917534]
+columns = "ABCDEFGHIJKL"
+rows = 12
+source = "The grid of the pictures he answered on, sitet-2026-09-30/de_anubis-BombsiteA.png and de_anubis-BombsiteB.png, drawn by sitet-2026-09-30/sites.py: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy), half-cells a top-left, b top-right, c bottom-left, d bottom-right -- the image, fit, origin and cell of [de_anubis.Canal.split], checked float-equal (anubis-taulukot-2026-10-06.md section 2.1), so every split of de_anubis is on one grid. His remark that the guide and the positions disagree at B main's entry and at pizza is the guide drawing's, not the fit's (anubis-taulukot-2026-10-06.md section 2.2: the whole map's best shift onto the drawn floor is 0 and 2 pixels, every window away from B main is within 6, and no one shift puts B main's ticks on the drawing), so the grid stays (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)')). No floor cut (anubis-taulukot-2026-10-06.md section 2.3): the guide draws one floor, so there is no zmin or zmax. His answer of 2026-10-06 is vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', read as tables in anubis-taulukot-2026-10-06.md and built by the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'). A split of an area that is not coarse (Story 4.23 form): the area keeps its own callout for its rule rows and for every position no part holds, the parts are finer places inside it, and the nearest rule does not apply. A table of its own: no place of his holds positions of two junction areas, so no split borrows (anubis-taulukot-2026-10-06.md section 5.0). His places on this split, from his quoted words: headshot, newbox."
+
+[de_anubis.Walkway.split.fit]
+sx = 0.29955244064331055
+sy = 0.3045792281627655
+bx = 698.9820556640625
+by = 984.8477783203125
+
+[[de_anubis.Walkway.split.parts]]
+callout = "headshot"
+cells = ["H4c"]
+junction = false
+confidence = "stated"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Headshot on H4c ruudussa alue juuri ennen kuin muuri alkaa ruudussa H4b, eli siitä juuri vielä näkee kohti tolppaa ja siteä ennen kuin menee piiloon heaveniin.' NOT HIS, H4b: where the wall begins, not headshot. The slope from walkway up to heaven (z -88 to -36) gets no band. H4c's 2 Heaven ticks at z -40 stay heaven (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #26). Transit, as Walkway (#28). It takes 23 Walkway positions. Junction basis: holds positions of Walkway"
+
+[[de_anubis.Walkway.split.parts]]
+callout = "newbox"
+regions = [
+  { cell = "H5b", x = [0.0, 0.5], y = [0.0, 0.5], words = "noin H5b ruudun vasemmassa yläreunassa" },
+]
+junction = false
+confidence = "inferred"
+source = "vastaus-anubis-sitet-2026-10-06.md section 'Verbatim', his words: 'Newbox on noin H5b ruudussa'. Asked whether the light box the guide draws at H4d's top is newbox (anubis-taulukot-2026-10-06.md ambiguity 25), he answered (vastaus-anubis-sitet-2026-10-06.md section 'His answers to the lead's four questions (2026-10-06)', answer 4), his words: 'Minusta tuntuu että tuo kuva on hieman vanhentunut. Oikeasti uusi laatikko on noin H5b ruudun vasemmassa yläreunassa.' -- his uusi laatikko is newbox, and the guide picture is out of date for this box. His 'vasemmassa yläreunassa', an edge named with a side, is H5b's top-left corner, sized by the size rule he confirmed for edges and corners (callouts.toml header). His 'noin' makes the extent ours: a corner of 0.6 of the half-cell would hold 18 live ticks and one of 0.4 would hold 7, against this corner's 10, so it is inferred, the rule spec-4-29-eight-answers.md decision 4 used for minipit. On its 10 live ticks it fails the band rule of the callouts.toml header (one level, z -88 to -43, the stairs up from walkway), so the box top is not told apart. Transit, as Walkway (the lead's decisions on anubis-taulukot-2026-10-06.md (spec-4-30-anubis-sites.md, section 'Lead decisions on anubis-taulukot-2026-10-06.md (2026-10-06)'), #28). It takes 10 Walkway positions. Junction basis: holds positions of Walkway"
 
 [de_anubis.Water]
 junction = false

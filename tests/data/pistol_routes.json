@@ -257,7 +257,7 @@
         "rows": [
           "  - 2 alley -> b site -> connector -> canal -> boat -> main -> a site",
           "  - 2 middle",
-          "    - 1 a site -> TunnelStairs (pelin nimi) -> kuoli heaven (36 s)",
+          "    - 1 a site -> heaven luola -> kuoli heaven (36 s)",
           "    - 1 bridge -> canal -> boat -> main -> kuoli main (35 s)",
           "  - 1 palace -> kuoli middle (45 s)"
         ],
@@ -271,7 +271,7 @@
         "rows": [
           "  - 4 ruins",
           "    - 2 bridge -> canal",
-          "      - 1 connector -> b site -> backsite -> kuoli backsite (29 s)",
+          "      - 1 connector -> b site -> dark -> kuoli backsite (29 s)",
           "      - 1 kuoli canal (21 s)",
           "    - 2 outside long",
           "      - 1 b site -> connector -> kuoli connector (44 s)",
@@ -410,11 +410,11 @@
         "round_no": 1,
         "rows": [
           "  - 2 middle",
-          "    - 1 TunnelStairs (pelin nimi) -> ct spawn -> alley",
-          "    - 1 b site -> backsite -> kuoli backsite (38 s)",
-          "  - 1 alley -> b site",
-          "  - 1 b site -> connector ⇄ b site -> kuoli b site (35 s)",
-          "  - 1 palace -> b site -> backsite -> kuoli backsite (40 s)"
+          "    - 1 ct spawn -> alley",
+          "    - 1 kamera ⇄ middle -> dark -> kuoli dark (38 s)",
+          "  - 1 alley -> ct -> siten takana",
+          "  - 1 ct -> b site -> connector ⇄ b site -> kuoli b site (35 s)",
+          "  - 1 palace -> dark -> kuoli dark (40 s)"
         ],
         "won": false
       }
@@ -424,11 +424,13 @@
         "note": null,
         "round_no": 13,
         "rows": [
-          "  - 2 ruins -> outside long -> b site -> 1 kuoli b site (22 s), 1 kuoli b site (30 s)",
+          "  - 2 ruins -> outside long",
+          "    - 1 b site -> kuoli b site (22 s)",
+          "    - 1 pizza -> kuoli pizza (30 s)",
           "  - 2 street -> stairs",
           "    - 1 canal -> kuoli connector (18 s)",
           "    - 1 kuoli canal (11 s)",
-          "  - 1 outside long -> b site -> kuoli b site (16 s)"
+          "  - 1 outside long -> b site -> kuoli pizza (16 s)"
         ],
         "won": false
       }
@@ -465,6 +467,6 @@
     ]
   },
   "limit": "A row is a string, so this catches the model and the renderer together and cannot say which of the two moved. It cannot be re-derived without the archive: the tests that read it without one assert on its own contents, which is a different job. The rows are read on the grid settings.toml declares, because _on_grid filters one demo of this archive down to it permanently -- so the table is the report on THAT grid and not on whatever grid a demo happens to be parsed at. It is an observation and not a rule: importing a demo changes these rows legitimately, and the answer is then to measure the table again and say so in the commit.",
-  "measured": "2026-10-02",
+  "measured": "2026-10-06",
   "note": "EVERY pistol block of every recorded team, keyed team/map/side/pistol, with the route rows as the view renders them from the real archive (Stories 4.11 and 4.13). Produced by running tests/test_calibration._route_blocks_from over the archive -- the same code path the test that reads it back uses -- so the file records what the tool produces and not a hand-written expectation. Since Story 4.13 the route reads every sample point, compresses each player's path to the product owner's junctions and speaks his callouts (src/pappascout/callouts.toml). The rows carry callouts, player counts and measured seconds only: the block's heading, which names the opponent and the date, is DELIBERATELY NOT HERE -- the repository is public and the denylist that guards it lives outside the repository (AD-12). What the heading states is pinned without the names in match_counts.json's played table."
 }

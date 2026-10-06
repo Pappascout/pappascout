@@ -406,6 +406,13 @@ _PART_SPLITS = {
     # Banana's grid (inferno-taulukot-2026-10-02.md section 5).
     "de_inferno.Pit": ("Pit",),
     "de_inferno.Ruins": ("Ruins",),
+    # Story 4.30: Anubis's sites and what his site places lie in, each a
+    # table of its own on Canal's grid (anubis-taulukot-2026-10-06.md
+    # section 5).
+    **{
+        f"de_anubis.{area}": (area,)
+        for area in ("BombsiteB", "BackofB", "BombsiteA", "Main", "Middle", "Walkway")
+    },
 }
 
 
@@ -523,7 +530,7 @@ def test_the_five_inferno_splits_read_one_table() -> None:
     + [
         tuple(key.split("."))
         for key in _PART_SPLITS
-        if key.startswith(("de_dust2.", "de_ancient.", "de_inferno."))
+        if key.startswith(("de_dust2.", "de_ancient.", "de_inferno.", "de_anubis."))
     ]
     + [("de_ancient", "CTSpawn")],
 )
@@ -578,7 +585,11 @@ _MERGES = {
         # Story 4.28: his ruins and pit on the sites' table.
         "ruins": "Ruins", "pit": "Pit",
     },
-    "de_anubis": {"bridge": "Bridge", "stairs": "TStairs", "connector": "Connector"},
+    # Story 4.30: his backsite, on BombsiteB's split.
+    "de_anubis": {
+        "bridge": "Bridge", "stairs": "TStairs", "connector": "Connector",
+        "backsite": "BackofB",
+    },
     "de_dust2": {
         "a site": "BombsiteA", "ramp": "ARamp", "ct spawn": "CTSpawn",
         "short stairs": "ShortStairs", "short a": "ExtendedA",
@@ -978,6 +989,7 @@ _GUIDE_PICTURE = {
     ("de_inferno", "dark"): "BombsiteB",
     ("de_inferno", "headshot boksi"): "BombsiteA",
     ("de_inferno", "longbox"): "BombsiteA",
+    ("de_anubis", "pyrstö"): "BombsiteA",
 }
 
 
@@ -1031,6 +1043,8 @@ def _reading(text: str) -> tuple | None:
 _SOURCE_FORMS_CHECKED = {
     "de_ancient.Alley": 0, "de_ancient.BombsiteA": 9, "de_ancient.BombsiteB": 5,
     "de_ancient.SideEntrance": 1, "de_ancient.TSideLower": 1, "de_anubis": 4,
+    "de_anubis.BackofB": 0, "de_anubis.BombsiteA": 3, "de_anubis.BombsiteB": 4,
+    "de_anubis.Main": 1, "de_anubis.Middle": 1, "de_anubis.Walkway": 0,
     "de_dust2": 7, "de_dust2.ARamp": 1, "de_dust2.BDoors": 3, "de_dust2.BombsiteA": 2,
     "de_dust2.BombsiteB": 9, "de_dust2.ExtendedA": 1, "de_dust2.LongA": 2,
     "de_dust2.MidDoors": 2, "de_inferno": 26, "de_inferno.Pit": 0,
@@ -1255,6 +1269,12 @@ _BANDED = {
     "de_ancient.SideEntrance": set(),
     "de_inferno.Pit": set(),
     "de_inferno.Ruins": set(),
+    # Story 4.30: no place he names by height on Anubis's sites passes the
+    # rule with two names of his (anubis-taulukot-2026-10-06.md section 3).
+    **{
+        f"de_anubis.{area}": set()
+        for area in ("BombsiteB", "BackofB", "BombsiteA", "Main", "Middle", "Walkway")
+    },
 }
 
 
@@ -1497,6 +1517,9 @@ _ONE_LEVEL = {
     "ykkonen's lower box in the crossing's G5d quarter": (
         "de_inferno", "ykkönen", ["G5d"], (0.5, 1.0), (0.0, 0.5)
     ),
+    # Story 4.30: koroke, which nobody stands on in the archive (3 ticks:
+    # latent until the archive grows).
+    "koroke's top": ("de_anubis.BombsiteA", "koroke", None, None),
 }
 #: The ticks a measured place must hold, so an entry pointed at the wrong
 #: rectangle fails rather than passes on whatever it finds there (Story
@@ -1713,3 +1736,93 @@ def test_the_a_cars_roof_passes_the_rule_and_carries_no_band_by_decision() -> No
         f"gap {high - low:.2f} from {low:.2f} to {high:.2f}"
     )
     assert stated in auto.source, stated
+
+
+#: The Anubis places he names by height that are built as no part, and the
+#: split whose source says why (Story 4.30, anubis-taulukot-2026-10-06.md
+#: section 3): the half-cells and a y range, and the words the source states
+#: about the refusal.
+_NOT_BUILT_BY_HEIGHT = {
+    "pöytä's top in J5d": (
+        "de_anubis.Main", ["J5d"], (0.0, 1.0),
+        "21 live ticks in J5d, 3 above a gap of 39.00",
+    ),
+    "the brick's boost on the D6c/D7a edge": (
+        "de_anubis.BombsiteB", ["D6c", "D7a"], None,
+        "19 live ticks, z -4 to 56, the largest gap 22.52",
+    ),
+    "heaven over the site in H3d": (
+        "de_anubis.BombsiteA", ["H3d"], (0.0, 1.0),
+        "33 live ticks, 2 at z -192 below a gap of 76.00",
+    ),
+}
+
+
+@pytest.mark.archive
+@pytest.mark.parametrize("place", sorted(_NOT_BUILT_BY_HEIGHT))
+def test_the_anubis_heights_built_as_no_part_fail_the_band_rule(place: str) -> None:
+    """The table's top, the brick's boost and heaven over the site are no
+    part of his (the lead's #7, #21, #22); each fails the rule, and the
+    numbers its split's source states are re-derived here. The brick lies on
+    the D6c/D7a edge, a quarter on each side (his risteys of two)."""
+    key, cells, y, stated = _NOT_BUILT_BY_HEIGHT[place]
+    split = _table()[_map_of(key)][_PART_SPLITS[key][0]].split
+    if y is None:
+        rects = [
+            split._region_rect(None, CellRegion(cell="D6c", y=(0.75, 1.0), words=place)),
+            split._region_rect(None, CellRegion(cell="D7a", y=(0.0, 0.25), words=place)),
+        ]
+    else:
+        rects = [_half_cell(split, c, y) for c in cells]
+    ticks = _on_floor(_live_ticks(require_parsed(), _map_of(key)), split)
+    z = sorted(_in_rects(ticks, split, rects)["z"])
+    passes, cuts, levels = _levels(z)
+    assert not passes, place
+    gaps = sorted((b - a for a, b in zip(z, z[1:])), reverse=True)
+    if place.startswith("the brick"):
+        found = (
+            f"{len(z)} live ticks, z {min(z):.0f} to {max(z):.0f}, the largest gap "
+            f"{gaps[0]:.2f}"
+        )
+    elif place.startswith("pöytä"):
+        found = f"{len(z)} live ticks in J5d, {len(levels[-1])} above a gap of {gaps[0]:.2f}"
+    else:
+        found = (
+            f"{len(z)} live ticks, {len(levels[0])} at z {min(z):.0f} below a gap of "
+            f"{gaps[0]:.2f}"
+        )
+    assert found == stated, (place, found)
+    assert stated in split.source, place
+
+
+@pytest.mark.archive
+def test_backsite_and_dark_pass_the_rule_on_a_level_he_does_not_name() -> None:
+    """The lead's #12 (Story 4.30): on backsite's regions and on dark's
+    claim the band rule passes, but on BackofB's ticks above the backsite
+    floor, which he names no place for -- so no band is built. The edges
+    and the levels the sources state are re-derived, as for Dust2's A car."""
+    table = _table()["de_anubis"]
+    ticks = _on_floor(_live_ticks(require_parsed(), "de_anubis"), table["BackofB"].split)
+    for area, callout, edge in (("BombsiteB", "backsite", 60.07), ("BackofB", "dark", 66.12)):
+        split = table[area].split
+        part = next(p for p in split.parts if p.callout == callout)
+        assert all(r.z is None for r in part.regions), callout
+        rects = [_half_cell(split, c) for c in part.cells] + [
+            split._region_rect(part, r) for r in part.regions
+        ]
+        place = _in_rects(ticks, split, rects)
+        passes, cuts, levels = _levels(place["z"])
+        assert passes and [round(mid, 2) for _, _, mid in cuts] == [edge], callout
+        upper = place.filter(pl.col("z") >= edge)
+        assert set(upper["area"]) == {"BackofB"}, callout
+        assert "no band is built" in part.source and f"{edge}" in part.source, callout
+        if callout == "backsite":
+            assert f"BackofB {upper.height} at z" in part.source
+        else:
+            ((low, high, _),) = cuts
+            stated = (
+                f"({len(levels[0])} ticks at z {min(levels[0]):.0f}..{max(levels[0]):.0f}, "
+                f"{len(levels[1])} at {min(levels[1]):.0f}..{max(levels[1]):.0f}, the "
+                f"largest gap {high - low:.2f} from {low:.2f} to {high:.2f}"
+            )
+            assert stated in part.source, stated

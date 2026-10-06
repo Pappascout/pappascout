@@ -1002,6 +1002,27 @@ _WHOLE = (0.0, 1.0)
 #: half by half corner (his own corner size, "puolet korkeudesta ja
 #: leveydestä").
 _FRACTION_WORDS: tuple[tuple[str, tuple[tuple[float, float], ...]], ...] = (
+    # Story 4.30, his Anubis site answer (vastaus-anubis-sitet-2026-10-06.md).
+    # dark tolppa: D7b and D6d share an edge, and "niiden vasemmassa ala ja
+    # yläreunassa" names a side of it, so each is that corner (the size
+    # rule's edge named with a side). The D7b side first, because its words
+    # contain D6d's.
+    ("d7b ja d6d risteyksessä niiden vasemmassa ala ja yläreunassa", (
+        (0.0, 0.5), (0.0, 0.5)
+    )),
+    ("d6d risteyksessä niiden vasemmassa ala", ((0.0, 0.5), (0.5, 1.0))),
+    # newbox, his answer 4: "vasemmassa yläreunassa", an edge named with a
+    # side, is that corner (the size rule), before "yläreuna", which it
+    # contains.
+    ("h5b ruudun vasemmassa yläreunassa", ((0.0, 0.5), (0.0, 0.5))),
+    # dark's E7a: an edge he did not quantify, the size rule's quarter.
+    ("e7a vasen reuna", ((0.0, EDGE), _WHOLE)),
+    # backsite's E7a and E6c: his own quarter, "vasemman neljänneksen".
+    ("ruutujen vasemman neljänneksen", ((0.0, 0.25), _WHOLE)),
+    # backsite's E6a and koroke's I4a: corners he did not quantify, half by
+    # half (the size rule), in the partitive and the inessive.
+    ("vasenta alakulmaa", ((0.0, 0.5), (0.5, 1.0))),
+    ("oikeassa yläkulmassa", ((0.5, 1.0), (0.0, 0.5))),
     # Story 4.29, his eight answers (vastaukset-2026-10-05.md). A corner he
     # did not quantify: half by half (the size rule).
     ("oikea yläkulma", ((0.5, 1.0), (0.0, 0.5))),
@@ -2535,12 +2556,30 @@ _INFERNO_CONFIDENCE = {
 }
 
 
+#: Every Anubis part's confidence (Story 4.30, anubis-taulukot-2026-10-06.md
+#: and the lead's decisions on it). mid doors window: the name is the
+#: lead's (Story 4.20). newbox: his "noin" makes the corner's extent ours,
+#: and a corner of 0.6 or 0.4 moves positions against the size rule's 0.5
+#: (his answer 4; the minipit rule of spec 4.29 decision 4).
+_ANUBIS_CONFIDENCE = {
+    "inferred": {"mid doors window", "newbox"},
+    "stated": {
+        # Story 4.20.
+        "bridge", "veneen kulma", "boat", "stairs", "connector", "canal",
+        # Story 4.30.
+        "pizza", "ct", "backsite", "siten takana", "dark tolppa", "dark",
+        "koroke", "pyrstö", "lähivasen", "lähikulma", "kamera", "headshot",
+    },
+}
+
+
 #: The maps whose every part's confidence is pinned (review round 1 of
 #: Story 4.27: one test for every map built since).
 _CONFIDENCE = {
     "de_dust2": _DUST2_CONFIDENCE,
     "de_ancient": _ANCIENT_CONFIDENCE,
     "de_inferno": _INFERNO_CONFIDENCE,
+    "de_anubis": _ANUBIS_CONFIDENCE,
 }
 
 
@@ -2735,3 +2774,149 @@ def test_the_coarse_inferno_splits_inherit_the_sites_names_by_the_nearest_rule()
         assert (inherited["K12a"], inherited["H4a"], inherited["F4c"]) == (
             "pit", "ruins", "dark"
         ), area
+
+
+# -- Story 4.30: Anubis's sites ------------------------------------------------
+
+
+def _anubis() -> dict:
+    return load_callouts(_POOL)["de_anubis"]
+
+
+def test_anubiss_site_splits_keep_the_area_for_the_rest_and_name_his_places() -> None:
+    """anubis-taulukot-2026-10-06.md section 5 and the lead's decisions:
+    six new splits, each the not-coarse form with a table of its own -- the
+    area keeps its own callout for the rest, nothing is inherited, and no
+    split borrows, since no place of his holds two junction areas'
+    positions. Canal's split is untouched."""
+    table = _anubis()
+    expected = {
+        "BombsiteB": ("b site", [
+            "pizza", "ct", "connector", "backsite", "siten takana",
+        ]),
+        "BackofB": ("backsite", ["dark tolppa", "dark"]),
+        "BombsiteA": ("a site", ["koroke", "pyrstö", "lähivasen"]),
+        "Main": ("main", ["lähikulma"]),
+        "Middle": ("middle", ["kamera"]),
+        "Walkway": ("walkway", ["headshot", "newbox"]),
+    }
+    for area, (callout, parts) in expected.items():
+        entry = table[area]
+        assert (entry.callout, entry.coarse) == (callout, False), area
+        assert [p.callout for p in entry.split.parts] == parts, area
+        assert entry.split.inherited == {}, area
+    assert {a for a, e in table.items() if e.split is not None} == {*expected, "Canal"}
+    assert [p.callout for p in table["Canal"].split.parts] == [
+        "mid doors window", "bridge", "veneen kulma", "boat", "stairs", "connector",
+        "canal",
+    ]
+
+
+def test_the_b_sides_places_are_his_half_cells() -> None:
+    """Pizza is his three half-cells by the positions, not the guide's C6c
+    alone (decision 2); ct is C6a and C6b, and C5c and C5d -- the way on to
+    the alley -- are not; D7d is connector and D7c, the way to it, is not;
+    siten takana is D6c and C6d (his answer 1: "C6d kyllä"), and C7d is the
+    site; the pillar's crossing is the site."""
+    split = _anubis()["BombsiteB"].split
+    for cell in ("B7b", "B6d", "C6c"):
+        assert _named_at(split, cell, 0.5, 0.5) == "pizza", cell
+    for cell in ("C6a", "C6b"):
+        assert _named_at(split, cell, 0.5, 0.5) == "ct", cell
+    for cell in ("C5c", "C5d", "D7c", "C7d", "C7b", "D7a", "B7d", "C7a", "C7c"):
+        assert _named_at(split, cell, 0.5, 0.5) is None, cell
+    assert _named_at(split, "D7d", 0.5, 0.5) == "connector"
+    for cell in ("D6c", "C6d"):
+        assert _named_at(split, cell, 0.5, 0.5) == "siten takana", cell
+    parts = {p.callout: p for p in split.parts}
+    assert not any(p.broad for p in parts.values())
+    assert "dark" not in parts and "dark tolppa" not in parts
+    assert "NOT BUILT: dark." in split.source
+
+
+def test_backsite_is_his_cells_on_the_site_and_dark_lies_inside_it() -> None:
+    """His backsite on BombsiteB's split is the game's BackofB -- transit,
+    so its 5 raised site positions are made transit -- in D7b, D6d, his
+    left quarters of E7a and E6c, D6b's bottom edge and E6a's bottom-left
+    corner. On BackofB's own split dark is D7b and E7a's left edge, broad
+    behind dark tolppa's two corners at the D6d/D7b edge; both transit."""
+    table = _anubis()
+    bsite = table["BombsiteB"].split
+    backsite = next(p for p in bsite.parts if p.callout == "backsite")
+    assert not backsite.junction and backsite.junction == table["BackofB"].junction
+    for cell, fx, fy in (
+        ("D7b", 0.5, 0.5), ("D6d", 0.5, 0.5), ("E7a", 0.1, 0.5), ("E6c", 0.1, 0.5),
+        ("D6b", 0.5, 0.9), ("E6a", 0.2, 0.8),
+    ):
+        assert _named_at(bsite, cell, fx, fy) == "backsite", cell
+    for cell, fx, fy in (
+        ("E7a", 0.4, 0.5), ("E6c", 0.4, 0.5), ("D6b", 0.5, 0.6), ("E6a", 0.8, 0.8),
+        ("E6a", 0.2, 0.2),
+    ):
+        assert _named_at(bsite, cell, fx, fy) is None, (cell, fx, fy)
+    back = table["BackofB"].split
+    parts = {p.callout: p for p in back.parts}
+    assert parts["dark"].broad and not parts["dark tolppa"].broad
+    assert not parts["dark"].junction and not parts["dark tolppa"].junction
+    assert _named_at(back, "D7b", 0.2, 0.2) == "dark tolppa"
+    assert _named_at(back, "D6d", 0.2, 0.8) == "dark tolppa"
+    assert _named_at(back, "D7b", 0.8, 0.8) == "dark"
+    assert _named_at(back, "D7b", 0.2, 0.8) == "dark"
+    assert _named_at(back, "E7a", 0.1, 0.5) == "dark"
+    assert _named_at(back, "E7a", 0.4, 0.5) is None
+    assert _named_at(back, "D6d", 0.8, 0.8) is None
+    assert _named_at(back, "D6d", 0.2, 0.2) is None
+
+
+def test_the_a_sides_places_are_his_half_cells_and_corners() -> None:
+    """koroke is I4a's top-right corner; pyrstö I3b; lähivasen I5b, I4d,
+    I4c; lähikulma three corners where I5d, J5c and I6b meet, on Main;
+    kamera G5d, G5b, H5c and H5a's bottom edge, on Middle; headshot H4c and
+    newbox H5b's top-left corner (his answer 4), on Walkway, transit;
+    heaven is the game's Heaven, no part. His answers 2 and 3: tolppa is
+    the game's Fountain and heaven luola its TunnelStairs, each the area's
+    own callout, transit -- so the J4a/J4c edge is no part."""
+    table = _anubis()
+    a = table["BombsiteA"].split
+    assert _named_at(a, "I4a", 0.8, 0.2) == "koroke"
+    assert _named_at(a, "I4a", 0.2, 0.2) is None
+    assert _named_at(a, "I4a", 0.8, 0.8) is None
+    assert _named_at(a, "I3b", 0.5, 0.5) == "pyrstö"
+    assert _named_at(a, "J4a", 0.5, 0.9) is None
+    assert _named_at(a, "J4c", 0.5, 0.1) is None
+    for area, callout in (("Fountain", "tolppa"), ("TunnelStairs", "heaven luola")):
+        entry = table[area]
+        assert (entry.callout, entry.junction, entry.confidence) == (
+            callout, False, "stated"
+        ), area
+        assert entry.split is None, area
+    assert "tolppa" not in {
+        p.callout for e in table.values() if e.split for p in e.split.parts
+    }
+    for cell in ("I5b", "I4d", "I4c"):
+        assert _named_at(a, cell, 0.5, 0.5) == "lähivasen", cell
+    for cell in ("H3d", "H4a", "H3b", "I5a", "I4b"):
+        assert _named_at(a, cell, 0.5, 0.5) is None, cell
+    assert "NOT BUILT: heaven." in a.source
+    main = table["Main"].split
+    for cell, fx, fy in (("I5d", 0.8, 0.8), ("J5c", 0.2, 0.8), ("I6b", 0.8, 0.2)):
+        assert _named_at(main, cell, fx, fy) == "lähikulma", cell
+    for cell, fx, fy in (("I5d", 0.2, 0.8), ("J5c", 0.8, 0.8), ("I6b", 0.8, 0.8)):
+        assert _named_at(main, cell, fx, fy) is None, cell
+    assert _named_at(main, "J5d", 0.5, 0.5) is None  # pöytä: not built
+    middle = table["Middle"].split
+    for cell in ("G5d", "G5b", "H5c"):
+        assert _named_at(middle, cell, 0.5, 0.5) == "kamera", cell
+    assert _named_at(middle, "H5a", 0.5, 0.9) == "kamera"
+    assert _named_at(middle, "H5a", 0.5, 0.6) is None
+    walk = table["Walkway"].split
+    assert _named_at(walk, "H4c", 0.5, 0.5) == "headshot"
+    assert _named_at(walk, "H5b", 0.2, 0.2) == "newbox"
+    for fx, fy in ((0.8, 0.2), (0.2, 0.8), (0.8, 0.8)):
+        assert _named_at(walk, "H5b", fx, fy) is None, (fx, fy)
+    assert _named_at(walk, "H4b", 0.5, 0.5) is None
+    assert _named_at(walk, "H4d", 0.5, 0.5) is None
+    for part in walk.parts:
+        assert not part.junction, part.callout
+    kamera = middle.parts[0]
+    assert kamera.junction == table["Middle"].junction is True
