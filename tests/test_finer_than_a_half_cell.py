@@ -378,6 +378,10 @@ _NEW_SPLITS = {
 #: Nuke's lobby, which is on the yard's guide grid and so not in
 #: :data:`_NEW_SPLITS`, and since Story 4.24 Nuke's four lower-floor
 #: splits, each with a table of its own.
+#: Story 4.30: the six Anubis areas split by his site answer, each with a
+#: table of its own on Canal's grid (anubis-taulukot-2026-10-06.md section 5).
+_ANUBIS_SITE_AREAS = ("BombsiteB", "BackofB", "BombsiteA", "Main", "Middle", "Walkway")
+
 _PART_SPLITS = {
     **_NEW_SPLITS,
     "de_nuke": ("Lobby",),
@@ -411,7 +415,7 @@ _PART_SPLITS = {
     # section 5).
     **{
         f"de_anubis.{area}": (area,)
-        for area in ("BombsiteB", "BackofB", "BombsiteA", "Main", "Middle", "Walkway")
+        for area in _ANUBIS_SITE_AREAS
     },
 }
 
@@ -1273,7 +1277,7 @@ _BANDED = {
     # rule with two names of his (anubis-taulukot-2026-10-06.md section 3).
     **{
         f"de_anubis.{area}": set()
-        for area in ("BombsiteB", "BackofB", "BombsiteA", "Main", "Middle", "Walkway")
+        for area in _ANUBIS_SITE_AREAS
     },
 }
 
@@ -1518,8 +1522,10 @@ _ONE_LEVEL = {
         "de_inferno", "ykkönen", ["G5d"], (0.5, 1.0), (0.0, 0.5)
     ),
     # Story 4.30: koroke, which nobody stands on in the archive (3 ticks:
-    # latent until the archive grows).
+    # latent until the archive grows), and newbox, whose top his stairs'
+    # ticks do not tell apart.
     "koroke's top": ("de_anubis.BombsiteA", "koroke", None, None),
+    "newbox's top": ("de_anubis.Walkway", "newbox", None, None),
 }
 #: The ticks a measured place must hold, so an entry pointed at the wrong
 #: rectangle fails rather than passes on whatever it finds there (Story
@@ -1571,6 +1577,14 @@ def test_every_place_built_without_a_band_fails_the_band_rule(place: str) -> Non
         held = place_ticks.filter((pl.col("z") >= low) & (pl.col("z") < high))
         assert held.height == int(stated[1]), (place, held.height)
     assert "fails the band rule" in part.source or "NOT BUILT" in part.source, place
+
+
+#: The form the majority clause's counts are written in (the header's ONE
+#: PLACE OVER A TRANSIT AREA ..., Story 4.30): "Its own spots hold <n>
+#: <Area> and <m> <Area> live ticks".
+_OWN_SPOTS = re.compile(
+    r"Its own spots hold (\d+ [A-Z]\w*(?:(?:, | and )\d+ [A-Z]\w*)*) live ticks"
+)
 
 
 def _part_and_split(map_name: str, callout: str):
@@ -1681,6 +1695,7 @@ def test_every_stated_junction_basis_is_what_the_archive_shows(key: str) -> None
                 counts = lies.setdefault(part.callout, {})
                 counts[area] = counts.get(area, 0) + 1
                 break
+    stating: set[str] = set()
     for part in split.parts:
         basis = _stated_basis(part)
         held = holds.get(part.callout, set())
@@ -1694,6 +1709,16 @@ def test_every_stated_junction_basis_is_what_the_archive_shows(key: str) -> None
             if area in _PART_SPLITS[key]:
                 found = taken.get((part.callout, area), 0)
                 assert found == int(n), (part.callout, area, found)
+        # Story 4.30 (review round 1): the counts the majority clause rests
+        # on, in the header's form -- the map's live ticks the part claims
+        # first, by game area -- are the archive's, every area of them, and
+        # the area holding most is the split's own.
+        own = _OWN_SPOTS.search(part.source)
+        if own:
+            stated = {a: int(n) for n, a in re.findall(r"(\d+) (\w+)", own[1])}
+            assert stated == lies.get(part.callout, {}), (part.callout, lies.get(part.callout))
+            assert max(stated, key=stated.get) in _PART_SPLITS[key], part.callout
+            stating.add(part.callout)
         if basis.startswith("holds positions of "):
             areas = set(re.match(r"holds positions of ([A-Za-z, ]+)", basis)[1].split(", "))
             assert held == areas, (part.callout, held)
@@ -1709,6 +1734,41 @@ def test_every_stated_junction_basis_is_what_the_archive_shows(key: str) -> None
             else:
                 assert "no live tick of the map lies in it" in basis, part.callout
                 assert not counts, part.callout
+    if key.startswith("de_anubis."):
+        # Story 4.30: a place over several game areas that is not named like
+        # one of them is placed by the majority clause, so its source states
+        # the counts.
+        named = {e.callout for e in table.values() if e.callout}
+        several = {
+            c for c, by_area in lies.items() if len(by_area) > 1 and c not in named
+        }
+        assert several <= stating, several - stating
+
+
+def _no_band_by_decision(map_name: str, area: str, callout: str):
+    """A place whose claim passes the band rule but carries no band by a
+    decision (Dust2's A car, Story 4.26 #12; Anubis's backsite and dark,
+    Story 4.30 #12): the part, its claim's live ticks, the rule's levels,
+    and the measurement in the words its source writes it, re-derived."""
+    split = _table()[map_name][area].split
+    part = next(p for p in split.parts if p.callout == callout)
+    assert all(r.z is None for r in part.regions), callout
+    rects = [_half_cell(split, c) for c in part.cells] + [
+        split._region_rect(part, r) for r in part.regions
+    ]
+    ticks = _on_floor(_live_ticks(require_parsed(), map_name), split)
+    place = _in_rects(ticks, split, rects)
+    passes, cuts, levels = _levels(place["z"])
+    assert passes, callout
+    ((low, high, _),) = cuts
+    stated = (
+        f"({len(levels[0])} ticks at z {min(levels[0]):.0f}..{max(levels[0]):.0f}, "
+        f"{len(levels[1])} at {min(levels[1]):.0f}..{max(levels[1]):.0f}, the largest "
+        f"gap {high - low:.2f} from {low:.2f} to {high:.2f}"
+    )
+    assert stated in part.source, stated
+    assert "no band is built" in part.source, callout
+    return part, place, cuts, levels
 
 
 @pytest.mark.archive
@@ -1717,42 +1777,28 @@ def test_the_a_cars_roof_passes_the_rule_and_carries_no_band_by_decision() -> No
     -- J3d, J4b and J4d's top quarter -- but the roof and the ground beside
     it are both his auto, so no band is built. The edge the source states is
     re-derived here, so the claim cannot outlive the archive."""
-    split = _table()["de_dust2"]["LongA"].split
-    auto = next(p for p in split.parts if p.callout == "a auto")
-    assert all(r.z is None for r in auto.regions)
-    rects = [_half_cell(split, c) for c in auto.cells] + [
-        split._region_rect(auto, r) for r in auto.regions
-    ]
-    ticks = _on_floor(_live_ticks(require_parsed(), "de_dust2"), split)
-    passes, cuts, levels = _levels(_in_rects(ticks, split, rects)["z"])
-    assert passes and [round(mid, 2) for _, _, mid in cuts] == [22.33]
+    auto, _, cuts, levels = _no_band_by_decision("de_dust2", "LongA", "a auto")
+    assert [round(mid, 2) for _, _, mid in cuts] == [22.33]
     assert [len(level) for level in levels] == [24, 5]
-    assert "edge 22.33" in auto.source and "no band is built" in auto.source
-    # The measurement the source writes out, re-derived (review round 1).
-    ((low, high, _),) = cuts
-    stated = (
-        f"({len(levels[0])} ticks at z {min(levels[0]):.0f}..{max(levels[0]):.0f}, "
-        f"{len(levels[1])} at {min(levels[1]):.0f}..{max(levels[1]):.0f}, the largest "
-        f"gap {high - low:.2f} from {low:.2f} to {high:.2f}"
-    )
-    assert stated in auto.source, stated
+    assert "edge 22.33" in auto.source
 
 
 #: The Anubis places he names by height that are built as no part, and the
 #: split whose source says why (Story 4.30, anubis-taulukot-2026-10-06.md
-#: section 3): the half-cells and a y range, and the words the source states
-#: about the refusal.
+#: section 3): the half-cells with a y range each, and the words the
+#: source states about the refusal. The brick lies on the D6c/D7a edge, a
+#: quarter on each side (his risteys of two).
 _NOT_BUILT_BY_HEIGHT = {
     "pöytä's top in J5d": (
-        "de_anubis.Main", ["J5d"], (0.0, 1.0),
+        "de_anubis.Main", [("J5d", (0.0, 1.0))],
         "21 live ticks in J5d, 3 above a gap of 39.00",
     ),
     "the brick's boost on the D6c/D7a edge": (
-        "de_anubis.BombsiteB", ["D6c", "D7a"], None,
+        "de_anubis.BombsiteB", [("D6c", (0.75, 1.0)), ("D7a", (0.0, 0.25))],
         "19 live ticks, z -4 to 56, the largest gap 22.52",
     ),
     "heaven over the site in H3d": (
-        "de_anubis.BombsiteA", ["H3d"], (0.0, 1.0),
+        "de_anubis.BombsiteA", [("H3d", (0.0, 1.0))],
         "33 live ticks, 2 at z -192 below a gap of 76.00",
     ),
 }
@@ -1763,20 +1809,13 @@ _NOT_BUILT_BY_HEIGHT = {
 def test_the_anubis_heights_built_as_no_part_fail_the_band_rule(place: str) -> None:
     """The table's top, the brick's boost and heaven over the site are no
     part of his (the lead's #7, #21, #22); each fails the rule, and the
-    numbers its split's source states are re-derived here. The brick lies on
-    the D6c/D7a edge, a quarter on each side (his risteys of two)."""
-    key, cells, y, stated = _NOT_BUILT_BY_HEIGHT[place]
+    numbers its split's source states are re-derived here."""
+    key, cells, stated = _NOT_BUILT_BY_HEIGHT[place]
     split = _table()[_map_of(key)][_PART_SPLITS[key][0]].split
-    if y is None:
-        rects = [
-            split._region_rect(None, CellRegion(cell="D6c", y=(0.75, 1.0), words=place)),
-            split._region_rect(None, CellRegion(cell="D7a", y=(0.0, 0.25), words=place)),
-        ]
-    else:
-        rects = [_half_cell(split, c, y) for c in cells]
+    rects = [_half_cell(split, c, y) for c, y in cells]
     ticks = _on_floor(_live_ticks(require_parsed(), _map_of(key)), split)
     z = sorted(_in_rects(ticks, split, rects)["z"])
-    passes, cuts, levels = _levels(z)
+    passes, _, levels = _levels(z)
     assert not passes, place
     gaps = sorted((b - a for a, b in zip(z, z[1:])), reverse=True)
     if place.startswith("the brick"):
@@ -1797,32 +1836,61 @@ def test_the_anubis_heights_built_as_no_part_fail_the_band_rule(place: str) -> N
 
 @pytest.mark.archive
 def test_backsite_and_dark_pass_the_rule_on_a_level_he_does_not_name() -> None:
-    """The lead's #12 (Story 4.30): on backsite's regions and on dark's
-    claim the band rule passes, but on BackofB's ticks above the backsite
-    floor, which he names no place for -- so no band is built. The edges
-    and the levels the sources state are re-derived, as for Dust2's A car."""
-    table = _table()["de_anubis"]
-    ticks = _on_floor(_live_ticks(require_parsed(), "de_anubis"), table["BackofB"].split)
+    """The lead's #12 (Story 4.30): on backsite's claim and on dark's the
+    band rule passes, but only on BackofB's ticks above the backsite floor,
+    which he names no place for -- so no band is built. The edge and both
+    levels the sources state are re-derived through the A car's helper."""
     for area, callout, edge in (("BombsiteB", "backsite", 60.07), ("BackofB", "dark", 66.12)):
-        split = table[area].split
-        part = next(p for p in split.parts if p.callout == callout)
-        assert all(r.z is None for r in part.regions), callout
-        rects = [_half_cell(split, c) for c in part.cells] + [
-            split._region_rect(part, r) for r in part.regions
-        ]
-        place = _in_rects(ticks, split, rects)
-        passes, cuts, levels = _levels(place["z"])
-        assert passes and [round(mid, 2) for _, _, mid in cuts] == [edge], callout
-        upper = place.filter(pl.col("z") >= edge)
-        assert set(upper["area"]) == {"BackofB"}, callout
-        assert "no band is built" in part.source and f"{edge}" in part.source, callout
-        if callout == "backsite":
-            assert f"BackofB {upper.height} at z" in part.source
-        else:
-            ((low, high, _),) = cuts
-            stated = (
-                f"({len(levels[0])} ticks at z {min(levels[0]):.0f}..{max(levels[0]):.0f}, "
-                f"{len(levels[1])} at {min(levels[1]):.0f}..{max(levels[1]):.0f}, the "
-                f"largest gap {high - low:.2f} from {low:.2f} to {high:.2f}"
-            )
-            assert stated in part.source, stated
+        part, place, cuts, _ = _no_band_by_decision("de_anubis", area, callout)
+        assert [round(mid, 2) for _, _, mid in cuts] == [edge], callout
+        assert set(place.filter(pl.col("z") >= edge)["area"]) == {"BackofB"}, callout
+        assert f"edge {edge}" in part.source, callout
+
+
+@pytest.mark.archive
+def test_an_extent_he_hedges_with_noin_is_ours_where_another_corner_moves() -> None:
+    """The header's AN EXTENT HE HEDGES WITH 'NOIN' (Story 4.30, review round
+    1): a corner he gives "noin" is the size rule's half by half, and the
+    corners of 0.4 and 0.6 of the half-cell its source states are re-derived;
+    the part is inferred exactly where one of them takes other live ticks
+    than the 0.5 corner. The parts that state the counts are a closed set."""
+    from test_cell_split import _HIS_WORDS
+
+    _header_clause(
+        r"AN EXTENT HE HEDGES WITH 'NOIN' .*? is inferred where a corner of 0\.4 "
+        r"or of 0\.6 of the half-cell takes other positions than the 0\.5 one"
+    )
+    stated_form = re.compile(
+        r"a corner of 0\.6 of the half-cell would hold (\d+) live ticks and one of "
+        r"0\.4 would hold (\d+), against this corner's (\d+)"
+    )
+    found = set()
+    for key in sorted(_PART_SPLITS):
+        split = _table()[_map_of(key)][_PART_SPLITS[key][0]].split
+        for part in split.parts:
+            stated = stated_form.search(part.source)
+            if not stated:
+                continue
+            (region,) = part.regions
+            # His hedge is in his quoted words (koroke's is beside the corner,
+            # "ja on noin neljännesruudun kokoinen").
+            assert any(
+                "noin" in q.lower() for q in _HIS_WORDS.findall(part.source)
+            ), part.callout
+            assert {region.x, region.y} <= {(0.0, 0.5), (0.5, 1.0)}, part.callout
+            ticks = _on_floor(_live_ticks(require_parsed(), _map_of(key)), split)
+            counts = {}
+            for size in (0.4, 0.5, 0.6):
+                x = (0.0, size) if region.x[0] == 0.0 else (1.0 - size, 1.0)
+                y = (0.0, size) if region.y[0] == 0.0 else (1.0 - size, 1.0)
+                rect = split._region_rect(
+                    part, CellRegion(cell=region.cell, x=x, y=y, words=region.words)
+                )
+                counts[size] = _in_rects(ticks, split, [rect]).height
+            assert (counts[0.6], counts[0.4], counts[0.5]) == tuple(
+                int(n) for n in stated.groups()
+            ), (part.callout, counts)
+            moves = counts[0.4] != counts[0.5] or counts[0.6] != counts[0.5]
+            assert (part.confidence == "inferred") == moves, part.callout
+            found.add((_map_of(key), part.callout))
+    assert found == {("de_anubis", "newbox"), ("de_anubis", "koroke")}

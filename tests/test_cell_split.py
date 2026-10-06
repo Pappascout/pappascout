@@ -2558,17 +2558,17 @@ _INFERNO_CONFIDENCE = {
 
 #: Every Anubis part's confidence (Story 4.30, anubis-taulukot-2026-10-06.md
 #: and the lead's decisions on it). mid doors window: the name is the
-#: lead's (Story 4.20). newbox: his "noin" makes the corner's extent ours,
-#: and a corner of 0.6 or 0.4 moves positions against the size rule's 0.5
-#: (his answer 4; the minipit rule of spec 4.29 decision 4).
+#: lead's (Story 4.20). newbox and koroke: his "noin" makes the corner's
+#: extent ours, and a corner of 0.6 or 0.4 moves positions against the size
+#: rule's 0.5 (the header's AN EXTENT HE HEDGES WITH 'NOIN').
 _ANUBIS_CONFIDENCE = {
-    "inferred": {"mid doors window", "newbox"},
+    "inferred": {"mid doors window", "newbox", "koroke"},
     "stated": {
         # Story 4.20.
         "bridge", "veneen kulma", "boat", "stairs", "connector", "canal",
         # Story 4.30.
         "pizza", "ct", "backsite", "siten takana", "dark tolppa", "dark",
-        "koroke", "pyrstö", "lähivasen", "lähikulma", "kamera", "headshot",
+        "pyrstö", "lähivasen", "lähikulma", "kamera", "headshot",
     },
 }
 
@@ -2786,9 +2786,12 @@ def _anubis() -> dict:
 def test_anubiss_site_splits_keep_the_area_for_the_rest_and_name_his_places() -> None:
     """anubis-taulukot-2026-10-06.md section 5 and the lead's decisions:
     six new splits, each the not-coarse form with a table of its own -- the
-    area keeps its own callout for the rest, nothing is inherited, and no
-    split borrows, since no place of his holds two junction areas'
-    positions. Canal's split is untouched."""
+    area keeps its own callout for the rest and nothing is inherited. None
+    borrows Canal's table: connector, the one place whose spots hold several
+    junction areas, is named like the game's Connector (one junction) and is
+    Canal's connector twinned (one place on one floor is one region), and a
+    borrowed coarse table would change Canal's inherited map. Canal's split
+    is untouched."""
     table = _anubis()
     expected = {
         "BombsiteB": ("b site", [
@@ -2839,7 +2842,8 @@ def test_backsite_is_his_cells_on_the_site_and_dark_lies_inside_it() -> None:
     so its 5 raised site positions are made transit -- in D7b, D6d, his
     left quarters of E7a and E6c, D6b's bottom edge and E6a's bottom-left
     corner. On BackofB's own split dark is D7b and E7a's left edge, broad
-    behind dark tolppa's two corners at the D6d/D7b edge; both transit."""
+    behind dark tolppa's corner in D7b (its other corner, in D6d, dark does
+    not reach); both transit."""
     table = _anubis()
     bsite = table["BombsiteB"].split
     backsite = next(p for p in bsite.parts if p.callout == "backsite")
@@ -2898,6 +2902,9 @@ def test_the_a_sides_places_are_his_half_cells_and_corners() -> None:
     for cell in ("H3d", "H4a", "H3b", "I5a", "I4b"):
         assert _named_at(a, cell, 0.5, 0.5) is None, cell
     assert "NOT BUILT: heaven." in a.source
+    # His words give heaven's cells, so the game's Heaven is stated (review
+    # round 1, #13).
+    assert (table["Heaven"].callout, table["Heaven"].confidence) == ("heaven", "stated")
     main = table["Main"].split
     for cell, fx, fy in (("I5d", 0.8, 0.8), ("J5c", 0.2, 0.8), ("I6b", 0.8, 0.2)):
         assert _named_at(main, cell, fx, fy) == "lähikulma", cell
